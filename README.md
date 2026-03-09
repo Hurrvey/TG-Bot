@@ -84,7 +84,7 @@ cp .env.example .env
 编辑 `.env`：
 
 ```env
-SECRET_KEY=换成一个随机字符串
+SECRET_KEY=换成你的随机字符串
 DATABASE_URL=sqlite:///tgbot.db
 WEB_HOST=127.0.0.1
 WEB_PORT=5000
@@ -220,38 +220,6 @@ python migrate.py
 - **定时任务**：按固定间隔或 Cron 表达式向指定群组发送消息
 - **运行日志**：实时查看匹配、回复、定时发送等操作记录
 
----
-
-## 快速开始
-
-### 1. 安装依赖
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. 配置环境变量
-
-```bash
-copy .env.example .env
-# 编辑 .env，修改 SECRET_KEY
-```
-
-### 3. 获取 Telegram API 凭证
-
-1. 访问 [my.telegram.org](https://my.telegram.org)
-2. 登录后点击 "API development tools"
-3. 创建应用，获取 **API ID** 和 **API Hash**
-
-### 4. 启动
-
-```bash
-python main.py
-```
-
-浏览器访问 `http://127.0.0.1:5000`
-
----
 
 ## 使用说明
 
@@ -261,14 +229,14 @@ python main.py
 2. 跳转到授权页面 → 点击"发送验证码"
 3. 填入收到的验证码（如开启了两步验证需同时填写密码）→ 完成授权
 
-### 配置关键词回复（示例：灵树灌溉）
+### 配置关键词回复
 
 | 字段 | 示例值 |
 |------|--------|
 | 关键词 | `还需时间` |
-| 需要解析等待时间 | ✅ 开启 |
+| 需要解析等待时间 |  `开启` |
 | 额外缓冲时间 | `30`（秒） |
-| 回复内容 | `灵树灌溉` |
+| 回复内容 | `关键词` |
 
 **触发逻辑**：当别人引用你发的消息，且回复内容包含"还需时间"，
 系统自动提取其中的中文时间（如 `1小时48秒` = 3648秒），
