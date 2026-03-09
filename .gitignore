@@ -1,0 +1,45 @@
+# ── 虚拟环境 ──
+.venv/
+venv/
+env/
+
+# ── 环境变量（含敏感 API 密钥）──
+.env
+
+# ── Python 缓存 ──
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# ── 数据库（含 Session 字符串，极度敏感）──
+instance/
+*.db
+*.sqlite3
+
+# ── Telethon Session 文件 ──
+*.session
+*.session-journal
+
+# ── 导出的消息文件 ──
+fetched_messages/
+
+# ── 日志文件 ──
+*.log
+logs/
+
+# ── 操作系统生成文件 ──
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE / 编辑器 ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── 构建产物 ──
+dist/
+build/
+*.egg-info/

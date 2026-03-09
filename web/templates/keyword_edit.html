@@ -1,0 +1,258 @@
+{% extends 'base.html' %}
+{% block title %}编辑关键词 - TG Bot{% endblock %}
+{% block page_title %}编辑关键词规则{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-7">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-pencil me-1"></i>编辑规则（ID: {{ kw.id }}）
+      </div>
+      <div class="card-body">
+        <form method="post">
+          <div class="mb-3">
+            <label class="form-label">适用账号</label>
+            <select name="account_id" id="kw-account" class="form-select" onchange="resolveTarget({{ kw.topic_id or 'null' }})">
+              <option value="">全部账号</option>
+              {% for acc in accounts %}
+              <option value="{{ acc.id }}" {{ 'selected' if kw.account_id == acc.id }}>
+                {{ acc.name }} ({{ acc.phone }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">关键词 <span class="text-danger">*</span></label>
+            <input type="text" name="keyword" class="form-control"
+                   value="{{ kw.keyword }}" required>
+          </div>
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="has_time"
+                     name="has_time_requirement"
+                     {{ 'checked' if kw.has_time_requirement }}
+                     onchange="toggleTimeFields()">
+              <label class="form-check-label" for="has_time">
+                需要解析等待时间
+              </label>
+            </div>
+          </div>
+          <div id="time-fields" class="mb-3" style="display:{{ 'block' if kw.has_time_requirement else 'none' }}">
+            <label class="form-label">额外缓冲时间（秒）</label>
+            <input type="number" name="time_buffer_seconds" class="form-control"
+                   value="{{ kw.time_buffer_seconds }}" min="0" max="3600">
+          </div>
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="use_random"
+                     name="use_random_time"
+                     {{ 'checked' if kw.use_random_time }}
+                     onchange="toggleRandomFields()">
+              <label class="form-check-label" for="use_random">
+                <i class="bi bi-shuffle"></i> 使用随机等待时间
+              </label>
+            </div>
+            <div class="form-text">开启后忽略解析的时间，在指定区间内随机取值作为等待秒数</div>
+          </div>
+          <div id="random-fields" class="mb-3" style="display:{{ 'block' if kw.use_random_time else 'none' }}">
+            <label class="form-label">随机时间区间（秒）</label>
+            <div class="input-group">
+              <span class="input-group-text">最少</span>
+              <input type="number" name="random_min_seconds" class="form-control"
+                     value="{{ kw.random_min_seconds or 60 }}" min="1">
+              <span class="input-group-text">最多</span>
+              <input type="number" name="random_max_seconds" class="form-control"
+                     value="{{ kw.random_max_seconds or 300 }}" min="1">
+              <span class="input-group-text">s</span>
+            </div>
+            <div class="form-text">每次触发后在此区间内随机选取等待秒数</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">回复内容 <span class="text-danger">*</span></label>
+            <textarea name="reply_message" class="form-control" rows="3" required>{{ kw.reply_message }}</textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">发送目标 ID
+              <span id="kw-target-badge" class="ms-1"></span>
+            </label>
+            <input type="text" name="target_group_id" id="kw-target-group" class="form-control"
+                   value="{{ kw.target_group_id or '' }}"
+                   placeholder="用户/机器人/群组/频道的数字 ID，留空则回到触发来源"
+                   oninput="scheduleDetect()">
+            <div class="form-text" id="kw-target-hint">
+              如果省略，回复将发到触发消息所在的聊天。支持用户、机器人、群组、频道的数字 ID。
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">目标备注</label>
+            <input type="text" name="target_group_name" class="form-control"
+                   value="{{ kw.target_group_name or '' }}"
+                   placeholder="可选，便于识别">
+          </div>          <div class="mb-3" id="topic-section" style="display:{{ 'none' if not kw.target_group_id else '' }}">
+            <label class="form-label">
+              <i class="bi bi-chat-square-text me-1"></i>发送到话题
+            </label>
+            <div id="topic-loading" class="d-none text-muted small py-1">
+              <span class="spinner-border spinner-border-sm me-1"></span>正在检测话题...
+            </div>
+            <div id="topic-select-wrap" class="d-none">
+              <select name="topic_id" id="topic_id_select" class="form-select" disabled>
+                <option value="">（不指定 / 默认话题）</option>
+              </select>
+            </div>
+            <div id="topic-input-wrap">
+              <input type="number" name="topic_id" id="topic_id_input" class="form-control"
+                     value="{{ kw.topic_id or '' }}"
+                     placeholder="手动输入话题 ID">
+            </div>
+            <div class="form-text" id="topic-help">
+              如果是 Forum 频道将自动加载话题列表。
+            </div>
+          </div>          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-circle me-1"></i>保存
+            </button>
+            <a href="{{ url_for('keywords.index') }}" class="btn btn-outline-secondary">取消</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleTimeFields() {
+  const cb = document.getElementById('has_time');
+  document.getElementById('time-fields').style.display = cb.checked ? 'block' : 'none';
+}
+function toggleRandomFields() {
+  const cb = document.getElementById('use_random');
+  document.getElementById('random-fields').style.display = cb.checked ? 'block' : 'none';
+}
+
+// ── 目标实体识别 + 话题检测 ──
+const FIRST_ACCOUNT_ID = {{ accounts[0].id if accounts else 'null' }};
+const KIND_BADGE = {
+  user:       ['bg-info text-dark',    'bi-person',         '用户'],
+  bot:        ['bg-secondary',         'bi-robot',          '机器人'],
+  group:      ['bg-success',           'bi-people',         '群组'],
+  supergroup: ['bg-success',           'bi-people-fill',    '超级群'],
+  channel:    ['bg-primary',           'bi-megaphone-fill', '频道'],
+  unknown:    ['bg-warning text-dark', 'bi-question',       '未知'],
+};
+
+let _resolveTimer = null;
+function scheduleDetect() {
+  clearTimeout(_resolveTimer);
+  _resolveTimer = setTimeout(() => resolveTarget(null), 700);
+}
+function getAccountId() {
+  const sel = document.getElementById('kw-account');
+  return (sel && sel.value) ? sel.value : FIRST_ACCOUNT_ID;
+}
+
+async function resolveTarget(preselect) {
+  const targetId  = (document.getElementById('kw-target-group').value || '').trim();
+  const accountId = getAccountId();
+  const badge     = document.getElementById('kw-target-badge');
+  const hint      = document.getElementById('kw-target-hint');
+  const section   = document.getElementById('topic-section');
+
+  if (!targetId || !accountId) {
+    if (badge) badge.innerHTML = '';
+    section.style.display = 'none';
+    _resetTopicUI();
+    return;
+  }
+
+  if (badge) badge.innerHTML = '<span class="badge bg-light text-muted"><span class="spinner-border spinner-border-sm me-1"></span>识别中…</span>';
+
+  try {
+    const resp = await fetch(`/accounts/${accountId}/resolve/${encodeURIComponent(targetId)}`);
+    const data = await resp.json();
+    if (data.error) {
+      if (badge) badge.innerHTML = `<span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>无法识别</span>`;
+      section.style.display = 'none';
+      _resetTopicUI();
+      return;
+    }
+    const [bgCls, icon, label] = KIND_BADGE[data.kind] || KIND_BADGE.unknown;
+    if (badge) badge.innerHTML = `<span class="badge ${bgCls}"><i class="bi ${icon} me-1"></i>${label}：${data.name}</span>`;
+    if (hint)  hint.textContent = `已识别为「${label}」（ID: ${data.id}）`;
+
+    if (data.is_forum) {
+      await _detectTopics(accountId, targetId, preselect);
+    } else {
+      section.style.display = 'none';
+      _resetTopicUI();
+    }
+  } catch(e) {
+    if (badge) badge.innerHTML = '';
+    section.style.display = 'none';
+  }
+}
+
+async function _detectTopics(accountId, targetId, preselect) {
+  const section = document.getElementById('topic-section');
+  section.style.display = '';
+  document.getElementById('topic-loading').classList.remove('d-none');
+  document.getElementById('topic-input-wrap').classList.add('d-none');
+  document.getElementById('topic-select-wrap').classList.add('d-none');
+  try {
+    const resp = await fetch(`/accounts/${accountId}/dialogs/${encodeURIComponent(targetId)}/topics`);
+    const data = await resp.json();
+    if (data.is_forum && data.topics && data.topics.length) {
+      _showSelect(data.topics, preselect);
+    } else {
+      _showInput(preselect);
+    }
+  } catch(e) {
+    _showInput(preselect);
+  }
+}
+
+function _resetTopicUI() {
+  document.getElementById('topic-loading').classList.add('d-none');
+  document.getElementById('topic-input-wrap').classList.add('d-none');
+  document.getElementById('topic-select-wrap').classList.add('d-none');
+  document.getElementById('topic_id_input').disabled = false;
+  document.getElementById('topic_id_select').disabled = true;
+}
+function _showInput(preselect) {
+  document.getElementById('topic-loading').classList.add('d-none');
+  document.getElementById('topic-select-wrap').classList.add('d-none');
+  document.getElementById('topic-input-wrap').classList.remove('d-none');
+  document.getElementById('topic_id_input').disabled = false;
+  document.getElementById('topic_id_select').disabled = true;
+  if (preselect != null) document.getElementById('topic_id_input').value = preselect;
+}
+function _showSelect(topics, preselect) {
+  document.getElementById('topic-loading').classList.add('d-none');
+  document.getElementById('topic-input-wrap').classList.add('d-none');
+  document.getElementById('topic-select-wrap').classList.remove('d-none');
+  document.getElementById('topic_id_input').disabled = true;
+  const sel = document.getElementById('topic_id_select');
+  sel.disabled = false;
+  sel.innerHTML = '<option value="">（不指定 / 默认话题）</option>';
+  topics.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = `#${t.id}  ${t.title}`;
+    if (preselect != null && String(t.id) === String(preselect)) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  const helpEl = document.getElementById('topic-help');
+  if (helpEl) helpEl.textContent = '已检测到 Forum 话题，请从列表中选择。';
+}
+
+// 页面加载时，如果已有目标 ID，自动识别并预选当前话题
+document.addEventListener('DOMContentLoaded', () => {
+  if ((document.getElementById('kw-target-group').value || '').trim()) {
+    resolveTarget({{ kw.topic_id or 'null' }});
+  }
+});
+</script>
+{% endblock %}

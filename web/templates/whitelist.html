@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% block title %}白名单 - TG Bot{% endblock %}
+{% block page_title %}白名单管理{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <!-- 添加 -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-shield-plus me-1"></i>添加白名单
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info small mb-3">
+          <i class="bi bi-info-circle me-1"></i>
+          <strong>白名单逻辑：</strong><br>
+          白名单<strong>非空</strong>时，只有列表中的实体引用你的消息才会触发关键词规则。<br>
+          白名单<strong>为空</strong>时，所有人的回复均可触发。
+        </div>
+        <form method="post" action="{{ url_for('whitelist.add') }}">
+          <div class="mb-3">
+            <label class="form-label">适用账号</label>
+            <select name="account_id" class="form-select">
+              <option value="">全部账号</option>
+              {% for acc in accounts %}
+              <option value="{{ acc.id }}">{{ acc.name }} ({{ acc.phone }})</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">留空则所有账号共用此白名单</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">实体 ID <span class="text-danger">*</span></label>
+            <input type="text" name="entity_id" class="form-control"
+                   placeholder="如：-1002517347269" required>
+            <div class="form-text">
+              用户/机器人为正数；频道/超群为负数（以 -100 开头）。<br>
+              可在<strong>账号管理 → 查看群组</strong>获取频道 ID，
+              或从已抓取的消息文件中复制 ID。
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">备注名称</label>
+            <input type="text" name="entity_name" class="form-control"
+                   placeholder="如：韩天尊（游戏机器人）">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">类型</label>
+            <select name="entity_type" class="form-select">
+              <option value="user">用户 (user)</option>
+              <option value="bot">机器人 (bot)</option>
+              <option value="channel">频道/超群 (channel)</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">备注说明</label>
+            <input type="text" name="note" class="form-control"
+                   placeholder="可选，如：修仙游戏机器人">
+          </div>
+          <button type="submit" class="btn btn-success w-100">
+            <i class="bi bi-plus-circle me-1"></i>加入白名单
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 列表 -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold d-flex align-items-center justify-content-between">
+        <span><i class="bi bi-list-check me-1"></i>当前白名单
+          <span class="badge bg-secondary ms-1">{{ entries|length }}</span>
+        </span>
+        {% set active_count = entries | selectattr('is_active') | list | length %}
+        {% if active_count > 0 %}
+        <span class="badge bg-success">{{ active_count }} 条生效中</span>
+        {% else %}
+        <span class="badge bg-warning text-dark">白名单为空，所有人均可触发</span>
+        {% endif %}
+      </div>
+      <div class="card-body p-0">
+        {% if entries %}
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>实体 ID</th>
+              <th>名称</th>
+              <th>类型</th>
+              <th>适用账号</th>
+              <th>备注</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in entries %}
+            <tr class="{{ '' if e.is_active else 'text-muted' }}">
+              <td>
+                <code class="bg-light px-2 py-1 rounded small"
+                      style="cursor:pointer" title="点击复制"
+                      onclick="navigator.clipboard.writeText('{{ e.entity_id }}').then(()=>{this.classList.add('text-success');setTimeout(()=>this.classList.remove('text-success'),1500)})">
+                  {{ e.entity_id }}
+                </code>
+              </td>
+              <td class="small fw-semibold">{{ e.entity_name or '—' }}</td>
+              <td>
+                {% if e.entity_type == 'bot' %}
+                  <span class="badge bg-info text-dark"><i class="bi bi-robot"></i> 机器人</span>
+                {% elif e.entity_type == 'channel' %}
+                  <span class="badge" style="background:#6610f2"><i class="bi bi-broadcast"></i> 频道</span>
+                {% else %}
+                  <span class="badge bg-secondary"><i class="bi bi-person"></i> 用户</span>
+                {% endif %}
+              </td>
+              <td class="small">
+                {% if e.account %}
+                  {{ e.account.name }}
+                {% else %}
+                  <span class="text-muted">全部</span>
+                {% endif %}
+              </td>
+              <td class="small text-muted">{{ e.note or '—' }}</td>
+              <td>
+                {% if e.is_active %}
+                  <span class="badge bg-success">生效</span>
+                {% else %}
+                  <span class="badge bg-secondary">停用</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="btn-group btn-group-sm">
+                  <form method="post" action="{{ url_for('whitelist.toggle', entry_id=e.id) }}" class="d-inline">
+                    <button class="btn btn-outline-{{ 'warning' if e.is_active else 'success' }}"
+                            title="{{ '停用' if e.is_active else '启用' }}">
+                      <i class="bi bi-{{ 'pause' if e.is_active else 'play' }}"></i>
+                    </button>
+                  </form>
+                  <form method="post" action="{{ url_for('whitelist.delete', entry_id=e.id) }}"
+                        class="d-inline"
+                        onsubmit="return confirm('从白名单移除 {{ e.entity_name or e.entity_id }} 吗？')">
+                    <button class="btn btn-outline-danger" title="移除">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-shield fs-2 d-block mb-2"></i>
+          白名单为空，<strong>所有人的回复均可触发关键词规则</strong><br>
+          <span class="small">添加后，只有白名单中的实体才能触发响应</span>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

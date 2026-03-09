@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% block title %}运行日志 - TG Bot{% endblock %}
+{% block page_title %}运行日志{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+
+  <!-- 待发回复 -->
+  {% if pending %}
+  <div class="col-12">
+    <div class="card border-warning">
+      <div class="card-header bg-warning text-dark fw-semibold">
+        <i class="bi bi-hourglass-split me-1"></i>待发定时回复（{{ pending|length }} 条）
+      </div>
+      <div class="card-body p-0">
+        <table class="table table-sm align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>计划发送时间</th>
+              <th>群组</th>
+              <th>消息</th>
+              <th>触发原因</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in pending %}
+            <tr>
+              <td class="text-nowrap small">{{ r.scheduled_at.strftime('%Y-%m-%d %H:%M:%S') }} UTC</td>
+              <td class="small">{{ r.group_id }}</td>
+              <td class="small text-truncate" style="max-width:200px">{{ r.message }}</td>
+              <td class="small text-muted text-truncate" style="max-width:200px">{{ r.triggered_by or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- 过滤器 -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-body py-2">
+        <form method="get" class="row g-2 align-items-end">
+          <div class="col-sm-4">
+            <label class="form-label small mb-1">账号</label>
+            <select name="account_id" class="form-select form-select-sm">
+              <option value="">全部账号</option>
+              {% for acc in accounts %}
+              <option value="{{ acc.id }}" {{ 'selected' if current_account_id == acc.id }}>
+                {{ acc.name }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-4">
+            <label class="form-label small mb-1">日志类型</label>
+            <select name="log_type" class="form-select form-select-sm">
+              <option value="">全部类型</option>
+              {% for lt in log_types %}
+              <option value="{{ lt }}" {{ 'selected' if current_log_type == lt }}>
+                {% if lt == 'keyword_matched' %}关键词匹配
+                {% elif lt == 'auto_replied' %}自动回复
+                {% elif lt == 'scheduled_sent' %}定时发送
+                {% elif lt == 'error' %}错误
+                {% else %}{{ lt }}{% endif %}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-sm-2">
+            <button type="submit" class="btn btn-sm btn-primary w-100">筛选</button>
+          </div>
+          <div class="col-sm-2">
+            <a href="{{ url_for('logs.index') }}" class="btn btn-sm btn-outline-secondary w-100">重置</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 日志列表 -->
+  <div class="col-12">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-journal-text me-1"></i>操作记录
+        <span class="badge bg-secondary ms-1">共 {{ logs.total }} 条</span>
+      </div>
+      <div class="card-body p-0">
+        {% if logs.items %}
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>时间 (UTC)</th>
+              <th>类型</th>
+              <th>群组</th>
+              <th>内容</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for log in logs.items %}
+            <tr>
+              <td class="text-muted small text-nowrap">
+                {{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') }}
+              </td>
+              <td>
+                {% if log.log_type == 'keyword_matched' %}
+                  <span class="badge bg-primary">关键词匹配</span>
+                {% elif log.log_type == 'auto_replied' %}
+                  <span class="badge bg-success">自动回复</span>
+                {% elif log.log_type == 'scheduled_sent' %}
+                  <span class="badge" style="background:#6610f2">定时发送</span>
+                {% elif log.log_type == 'error' %}
+                  <span class="badge bg-danger">错误</span>
+                {% else %}
+                  <span class="badge bg-secondary">{{ log.log_type }}</span>
+                {% endif %}
+              </td>
+              <td class="small">{{ log.group_name or log.group_id or '—' }}</td>
+              <td class="small" style="max-width:400px;white-space:pre-wrap;word-break:break-all">
+                {{ log.content or '—' }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+
+        <!-- 分页 -->
+        {% if logs.pages > 1 %}
+        <div class="d-flex justify-content-center mt-3 pb-3">
+          <nav>
+            <ul class="pagination pagination-sm mb-0">
+              {% if logs.has_prev %}
+              <li class="page-item">
+                <a class="page-link" href="{{ url_for('logs.index', page=logs.prev_num,
+                   account_id=current_account_id, log_type=current_log_type) }}">上一页</a>
+              </li>
+              {% endif %}
+              <li class="page-item disabled">
+                <span class="page-link">{{ logs.page }} / {{ logs.pages }}</span>
+              </li>
+              {% if logs.has_next %}
+              <li class="page-item">
+                <a class="page-link" href="{{ url_for('logs.index', page=logs.next_num,
+                   account_id=current_account_id, log_type=current_log_type) }}">下一页</a>
+              </li>
+              {% endif %}
+            </ul>
+          </nav>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-journal fs-2 d-block mb-2"></i>
+          暂无日志记录
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

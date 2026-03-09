@@ -1,0 +1,310 @@
+{% extends 'base.html' %}
+{% block title %}定时任务 - TG Bot{% endblock %}
+{% block page_title %}定时发送任务{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- 添加任务 -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-plus-circle me-1"></i>添加定时任务
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('tasks.add') }}" id="task-form">
+          <div class="mb-3">
+            <label class="form-label">账号 <span class="text-danger">*</span></label>
+            <select name="account_id" id="task-account" class="form-select" required
+                    onchange="resolveTarget(null)">
+              <option value="">请选择账号</option>
+              {% for acc in accounts %}
+              <option value="{{ acc.id }}">{{ acc.name }} ({{ acc.phone }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">目标 ID <span class="text-danger">*</span>
+              <span id="task-target-badge" class="ms-1"></span>
+            </label>
+            <input type="text" name="group_id" id="task-target" class="form-control"
+                   placeholder="用户/机器人/群组/频道的数字 ID" required
+                   oninput="scheduleDetect()">
+            <div class="form-text" id="task-target-hint">
+              支持用户、机器人、群组、超级群、频道的数字 ID。
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">目标备注</label>
+            <input type="text" name="group_name" class="form-control" placeholder="可选，便于识别">
+          </div>
+          <div class="mb-3" id="task-topic-section" style="display:none">
+            <label class="form-label">
+              <i class="bi bi-chat-square-text me-1"></i>发送到话题
+            </label>
+            <div id="task-topic-loading" class="d-none text-muted small py-1">
+              <span class="spinner-border spinner-border-sm me-1"></span>正在检测话题...
+            </div>
+            <div id="task-topic-select-wrap" class="d-none">
+              <select name="topic_id" id="task-topic-select" class="form-select" disabled>
+                <option value="">（不指定 / 默认话题）</option>
+              </select>
+            </div>
+            <div id="task-topic-input-wrap" class="d-none">
+              <input type="number" name="topic_id" id="task-topic-input" class="form-control"
+                     placeholder="手动输入话题 ID">
+            </div>
+            <div class="form-text" id="task-topic-help"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">发送消息内容 <span class="text-danger">*</span></label>
+            <textarea name="message" class="form-control" rows="3"
+                      placeholder="定时发送的消息" required></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">任务类型</label>
+            <div class="btn-group w-100" role="group">
+              <input type="radio" class="btn-check" name="task_type" id="type_interval"
+                     value="interval" checked onchange="switchType()">
+              <label class="btn btn-outline-primary" for="type_interval">按间隔</label>
+              <input type="radio" class="btn-check" name="task_type" id="type_cron"
+                     value="cron" onchange="switchType()">
+              <label class="btn btn-outline-primary" for="type_cron">Cron 表达式</label>
+            </div>
+          </div>
+          <div id="interval-field" class="mb-3">
+            <label class="form-label">间隔分钟数 <span class="text-danger">*</span></label>
+            <div class="input-group">
+              <input type="number" name="interval_minutes" class="form-control"
+                     placeholder="60" min="1">
+              <span class="input-group-text">分钟</span>
+            </div>
+          </div>
+          <div id="cron-field" class="mb-3" style="display:none">
+            <label class="form-label">Cron 表达式 <span class="text-danger">*</span></label>
+            <input type="text" name="cron_expression" class="form-control"
+                   placeholder="0 9 * * *">
+            <div class="form-text">
+              格式：分 时 日 月 周。如 <code>0 9 * * *</code> 表示每天 09:00（UTC）。
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-clock-history me-1"></i>添加任务
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 任务列表 -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-list-task me-1"></i>任务列表
+        <span class="badge bg-secondary ms-1">{{ tasks|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if tasks %}
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>账号</th>
+              <th>目标</th>
+              <th>话题</th>
+              <th>消息</th>
+              <th>执行规则</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for task in tasks %}
+            <tr class="{{ '' if task.is_active else 'text-muted' }}">
+              <td class="small">
+                {% if task.account %}{{ task.account.name }}{% else %}—{% endif %}
+              </td>
+              <td class="small">
+                <div>{{ task.group_name or '—' }}</div>
+                <div class="text-muted" style="font-size:.75rem">{{ task.group_id }}</div>
+              </td>
+              <td class="small">
+                {% if task.topic_id %}
+                  <span class="badge bg-primary"><i class="bi bi-chat-square-text me-1"></i>#{{ task.topic_id }}</span>
+                {% else %}
+                  <span class="text-muted">默认</span>
+                {% endif %}
+              </td>
+              <td class="small text-truncate" style="max-width:130px" title="{{ task.message }}">
+                {{ task.message }}
+              </td>
+              <td class="small">
+                {% if task.task_type == 'interval' %}
+                  <span class="badge bg-info text-dark">
+                    每 {{ task.interval_minutes }} 分钟
+                  </span>
+                {% else %}
+                  <code class="small">{{ task.cron_expression }}</code>
+                {% endif %}
+              </td>
+              <td>
+                {% if task.is_active %}
+                  <span class="badge bg-success">运行中</span>
+                {% else %}
+                  <span class="badge bg-secondary">已停止</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="btn-group btn-group-sm">
+                  <form method="post" action="{{ url_for('tasks.toggle', task_id=task.id) }}" class="d-inline">
+                    <button class="btn btn-outline-{{ 'warning' if task.is_active else 'success' }}"
+                            title="{{ '停止' if task.is_active else '启动' }}">
+                      <i class="bi bi-{{ 'pause' if task.is_active else 'play' }}"></i>
+                    </button>
+                  </form>
+                  <form method="post" action="{{ url_for('tasks.delete', task_id=task.id) }}"
+                        class="d-inline"
+                        onsubmit="return confirm('确定删除此定时任务吗？')">
+                    <button class="btn btn-outline-danger" title="删除">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-clock fs-2 d-block mb-2"></i>
+          还没有定时任务，请在左侧添加
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function switchType() {
+  const isCron = document.getElementById('type_cron').checked;
+  document.getElementById('interval-field').style.display = isCron ? 'none' : 'block';
+  document.getElementById('cron-field').style.display = isCron ? 'block' : 'none';
+}
+
+// ── 目标实体识别 + 话题检测 ──
+const KIND_BADGE = {
+  user:       ['bg-info text-dark',    'bi-person',         '用户'],
+  bot:        ['bg-secondary',         'bi-robot',          '机器人'],
+  group:      ['bg-success',           'bi-people',         '群组'],
+  supergroup: ['bg-success',           'bi-people-fill',    '超级群'],
+  channel:    ['bg-primary',           'bi-megaphone-fill', '频道'],
+  unknown:    ['bg-warning text-dark', 'bi-question',       '未知'],
+};
+
+let _resolveTimer = null;
+function scheduleDetect() {
+  clearTimeout(_resolveTimer);
+  _resolveTimer = setTimeout(() => resolveTarget(null), 700);
+}
+function getAccountId() {
+  const sel = document.getElementById('task-account');
+  return sel ? sel.value : '';
+}
+
+async function resolveTarget(preselect) {
+  const targetId  = (document.getElementById('task-target').value || '').trim();
+  const accountId = getAccountId();
+  const badge     = document.getElementById('task-target-badge');
+  const hint      = document.getElementById('task-target-hint');
+  const section   = document.getElementById('task-topic-section');
+
+  if (!targetId || !accountId) {
+    if (badge) badge.innerHTML = '';
+    section.style.display = 'none';
+    _resetTopicUI();
+    return;
+  }
+
+  if (badge) badge.innerHTML = '<span class="badge bg-light text-muted"><span class="spinner-border spinner-border-sm me-1"></span>识别中…</span>';
+
+  try {
+    const resp = await fetch(`/accounts/${accountId}/resolve/${encodeURIComponent(targetId)}`);
+    const data = await resp.json();
+    if (data.error) {
+      if (badge) badge.innerHTML = `<span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>无法识别</span>`;
+      section.style.display = 'none';
+      _resetTopicUI();
+      return;
+    }
+    const [bgCls, icon, label] = KIND_BADGE[data.kind] || KIND_BADGE.unknown;
+    if (badge) badge.innerHTML = `<span class="badge ${bgCls}"><i class="bi ${icon} me-1"></i>${label}：${data.name}</span>`;
+    if (hint)  hint.textContent = `已识别为「${label}」（ID: ${data.id}）`;
+
+    if (data.is_forum) {
+      await _detectTopics(accountId, targetId, preselect);
+    } else {
+      section.style.display = 'none';
+      _resetTopicUI();
+    }
+  } catch(e) {
+    if (badge) badge.innerHTML = '';
+    section.style.display = 'none';
+  }
+}
+
+async function _detectTopics(accountId, targetId, preselect) {
+  const section = document.getElementById('task-topic-section');
+  section.style.display = '';
+  document.getElementById('task-topic-loading').classList.remove('d-none');
+  document.getElementById('task-topic-input-wrap').classList.add('d-none');
+  document.getElementById('task-topic-select-wrap').classList.add('d-none');
+  try {
+    const resp = await fetch(`/accounts/${accountId}/dialogs/${encodeURIComponent(targetId)}/topics`);
+    const data = await resp.json();
+    if (data.is_forum && data.topics && data.topics.length) {
+      _showSelect(data.topics, preselect);
+    } else {
+      _showInput(preselect);
+    }
+  } catch(e) {
+    _showInput(preselect);
+  }
+}
+
+function _resetTopicUI() {
+  document.getElementById('task-topic-loading').classList.add('d-none');
+  document.getElementById('task-topic-input-wrap').classList.add('d-none');
+  document.getElementById('task-topic-select-wrap').classList.add('d-none');
+  document.getElementById('task-topic-input').disabled = false;
+  document.getElementById('task-topic-select').disabled = true;
+}
+function _showInput(preselect) {
+  document.getElementById('task-topic-loading').classList.add('d-none');
+  document.getElementById('task-topic-select-wrap').classList.add('d-none');
+  document.getElementById('task-topic-input-wrap').classList.remove('d-none');
+  document.getElementById('task-topic-input').disabled = false;
+  document.getElementById('task-topic-select').disabled = true;
+  if (preselect != null) document.getElementById('task-topic-input').value = preselect;
+}
+function _showSelect(topics, preselect) {
+  document.getElementById('task-topic-loading').classList.add('d-none');
+  document.getElementById('task-topic-input-wrap').classList.add('d-none');
+  document.getElementById('task-topic-select-wrap').classList.remove('d-none');
+  document.getElementById('task-topic-input').disabled = true;
+  const sel = document.getElementById('task-topic-select');
+  sel.disabled = false;
+  sel.innerHTML = '<option value="">（不指定 / 默认话题）</option>';
+  topics.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = `#${t.id}  ${t.title}`;
+    if (preselect != null && String(t.id) === String(preselect)) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  const helpEl = document.getElementById('task-topic-help');
+  if (helpEl) helpEl.textContent = '已检测到 Forum 话题，请从列表中选择。';
+}
+</script>
+{% endblock %}

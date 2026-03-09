@@ -1,0 +1,5 @@
+telethon>=1.36.0
+flask>=3.0.0
+flask-sqlalchemy>=3.1.0
+apscheduler>=3.10.4
+python-dotenv>=1.0.0

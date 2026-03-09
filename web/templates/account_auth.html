@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+{% block title %}账号授权 - TG Bot{% endblock %}
+{% block page_title %}账号授权 - {{ account.name }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-shield-lock me-1"></i>Telegram 登录授权
+      </div>
+      <div class="card-body">
+        <div class="mb-4">
+          <table class="table table-sm">
+            <tr><td class="text-muted">账号名称</td><td><strong>{{ account.name }}</strong></td></tr>
+            <tr><td class="text-muted">手机号</td><td>{{ account.phone }}</td></tr>
+            <tr><td class="text-muted">当前状态</td>
+              <td>
+                {% if account.status == 'authorized' %}
+                  <span class="badge bg-success">已授权</span>
+                {% elif account.status == 'pending' %}
+                  <span class="badge bg-secondary">待授权</span>
+                {% else %}
+                  <span class="badge bg-danger">错误</span>
+                {% endif %}
+              </td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- 步骤1：发送验证码 -->
+        <div class="card border-primary mb-3">
+          <div class="card-header bg-primary text-white">
+            步骤 1：发送验证码
+          </div>
+          <div class="card-body">
+            <p class="card-text small text-muted">
+              点击下方按钮，Telegram 将向 <strong>{{ account.phone }}</strong> 发送验证码
+              （通过短信或 Telegram 应用通知）。
+            </p>
+            <form method="post" action="{{ url_for('accounts.send_code', account_id=account.id) }}">
+              <button type="submit" class="btn btn-primary">
+                <i class="bi bi-send me-1"></i>发送验证码
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <!-- 步骤2：填写验证码 -->
+        <div class="card border-success">
+          <div class="card-header bg-success text-white">
+            步骤 2：填写验证码完成登录
+          </div>
+          <div class="card-body">
+            <form method="post" action="{{ url_for('accounts.verify', account_id=account.id) }}">
+              <div class="mb-3">
+                <label class="form-label">验证码 <span class="text-danger">*</span></label>
+                <input type="text" name="code" class="form-control"
+                       placeholder="输入收到的验证码" maxlength="10" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">两步验证密码（可选）</label>
+                <input type="password" name="password" class="form-control"
+                       placeholder="若账号开启了两步验证则需填写">
+                <div class="form-text">未开启两步验证可留空</div>
+              </div>
+              <button type="submit" class="btn btn-success">
+                <i class="bi bi-check-circle me-1"></i>完成授权
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div class="mt-3">
+          <a href="{{ url_for('accounts.index') }}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left me-1"></i>返回账号列表
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

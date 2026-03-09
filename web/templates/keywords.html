@@ -1,0 +1,382 @@
+{% extends 'base.html' %}
+{% block title %}关键词回复 - TG Bot{% endblock %}
+{% block page_title %}关键词回复规则{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- 添加规则 -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-plus-circle me-1"></i>添加关键词规则
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('keywords.add') }}" id="kw-form">
+          <div class="mb-3">
+            <label class="form-label">适用账号</label>
+            <select name="account_id" id="kw-account" class="form-select" onchange="resolveTarget(null)">
+              <option value="">全部账号</option>
+              {% for acc in accounts %}
+              <option value="{{ acc.id }}">{{ acc.name }} ({{ acc.phone }})</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">留空则所有账号均适用</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">关键词 <span class="text-danger">*</span></label>
+            <input type="text" name="keyword" class="form-control"
+                   placeholder="如：灵树灌溉" required>
+            <div class="form-text">在"别人引用我消息的回复"中检测此关键词</div>
+          </div>
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="has_time"
+                     name="has_time_requirement" onchange="toggleTimeFields()">
+              <label class="form-check-label" for="has_time">
+                需要解析等待时间
+              </label>
+            </div>
+            <div class="form-text">
+              开启后，将从消息中提取中文时间（如"1小时48秒"），到期后再发送回复
+            </div>
+          </div>
+          <div id="time-fields" class="mb-3" style="display:none">
+            <label class="form-label">额外缓冲时间（秒）</label>
+            <input type="number" name="time_buffer_seconds" class="form-control"
+                   value="30" min="0" max="3600">
+            <div class="form-text">
+              在解析出的等待时间基础上额外等待的秒数（推荐 30~120）
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="use_random"
+                     name="use_random_time" onchange="toggleRandomFields()">
+              <label class="form-check-label" for="use_random">
+                <i class="bi bi-shuffle"></i> 使用随机等待时间
+              </label>
+            </div>
+            <div class="form-text">
+              开启后忽略解析的时间，在指定区间内随机取值作为等待秒数。默认关闭。
+            </div>
+          </div>
+          <div id="random-fields" class="mb-3" style="display:none">
+            <label class="form-label">随机时间区间（秒）</label>
+            <div class="input-group">
+              <span class="input-group-text">最少</span>
+              <input type="number" name="random_min_seconds" class="form-control"
+                     value="60" min="1" placeholder="60">
+              <span class="input-group-text">最多</span>
+              <input type="number" name="random_max_seconds" class="form-control"
+                     value="300" min="1" placeholder="300">
+              <span class="input-group-text">s</span>
+            </div>
+            <div class="form-text">每次触发后在此区间内随机选取等待秒数</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">回复内容 <span class="text-danger">*</span></label>
+            <textarea name="reply_message" class="form-control" rows="3"
+                      placeholder="触发后发送的消息内容" required></textarea>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">发送目标 ID
+              <span id="kw-target-badge" class="ms-1"></span>
+            </label>
+            <input type="text" name="target_group_id" id="kw-target-group" class="form-control"
+                   placeholder="用户/机器人/群组/频道的数字 ID，留空则回到触发来源"
+                   oninput="scheduleDetect()">
+            <div class="form-text" id="kw-target-hint">
+              如果省略，回复将发到<strong>触发消息所在的聊天</strong>。支持用户、机器人、群组、频道的数字 ID。
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">目标备注</label>
+            <input type="text" name="target_group_name" class="form-control"
+                   placeholder="可选，便于识别">
+          </div>          <div class="mb-3" id="topic-section" style="display:none">
+            <label class="form-label">
+              <i class="bi bi-chat-square-text me-1"></i>发送到话题
+            </label>
+            <div id="topic-loading" class="d-none text-muted small py-1">
+              <span class="spinner-border spinner-border-sm me-1"></span>正在检测话题...
+            </div>
+            <div id="topic-select-wrap" class="d-none">
+              <select name="topic_id" id="topic_id_select" class="form-select">
+                <option value="">（不指定 / 默认话题）</option>
+              </select>
+            </div>
+            <div id="topic-input-wrap" class="d-none">
+              <input type="number" name="topic_id" id="topic_id_input" class="form-control"
+                     placeholder="手动输入话题 ID">
+            </div>
+            <div class="form-text" id="topic-help"></div>
+          </div>          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-plus-circle me-1"></i>添加规则
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 规则列表 -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-list-check me-1"></i>规则列表
+        <span class="badge bg-secondary ms-1">{{ keywords|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if keywords %}
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>关键词</th>
+              <th>适用账号</th>
+              <th>时间模式</th>
+              <th>目标群组</th>
+              <th>话题</th>
+              <th>回复内容</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for kw in keywords %}
+            <tr class="{{ '' if kw.is_active else 'text-muted' }}">
+              <td>
+                <code class="bg-light px-2 py-1 rounded">{{ kw.keyword }}</code>
+              </td>
+              <td class="small">
+                {% if kw.account %}
+                  {{ kw.account.name }}
+                {% else %}
+                  <span class="text-muted">全部</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if kw.use_random_time %}
+                  <span class="badge bg-info text-dark">
+                    <i class="bi bi-shuffle"></i>
+                    {{ kw.random_min_seconds }}~{{ kw.random_max_seconds }}s
+                  </span>
+                {% elif kw.has_time_requirement %}
+                  <span class="badge bg-warning text-dark">
+                    <i class="bi bi-clock"></i> +{{ kw.time_buffer_seconds }}s
+                  </span>
+                {% else %}
+                  <span class="badge bg-secondary">立即回复</span>
+                {% endif %}
+              </td>
+              <td class="small">
+                {% if kw.target_group_id %}
+                  <span class="text-success" title="{{ kw.target_group_id }}">
+                    <i class="bi bi-arrow-right-circle"></i>
+                    {{ kw.target_group_name or kw.target_group_id }}
+                  </span>
+                {% else %}
+                  <span class="text-muted">触发来源</span>
+                {% endif %}
+              </td>
+              <td class="small">
+                {% if kw.topic_id %}
+                  <span class="badge bg-primary" title="Forum 话题 ID">
+                    <i class="bi bi-chat-square-text"></i> #{{ kw.topic_id }}
+                  </span>
+                {% else %}
+                  <span class="text-muted">默认</span>
+                {% endif %}
+              </td>
+              <td class="small text-truncate" style="max-width:180px" title="{{ kw.reply_message }}">
+                {{ kw.reply_message }}
+              </td>
+              <td>
+                {% if kw.is_active %}
+                  <span class="badge bg-success">启用</span>
+                {% else %}
+                  <span class="badge bg-secondary">停用</span>
+                {% endif %}
+              </td>
+              <td>
+                <div class="btn-group btn-group-sm">
+                  <a href="{{ url_for('keywords.edit', kw_id=kw.id) }}"
+                     class="btn btn-outline-secondary" title="编辑">
+                    <i class="bi bi-pencil"></i>
+                  </a>
+                  <form method="post" action="{{ url_for('keywords.toggle', kw_id=kw.id) }}" class="d-inline">
+                    <button class="btn btn-outline-{{ 'warning' if kw.is_active else 'success' }}"
+                            title="{{ '停用' if kw.is_active else '启用' }}">
+                      <i class="bi bi-{{ 'pause' if kw.is_active else 'play' }}"></i>
+                    </button>
+                  </form>
+                  <form method="post" action="{{ url_for('keywords.delete', kw_id=kw.id) }}"
+                        class="d-inline"
+                        onsubmit="return confirm('确定删除关键词规则吗？')">
+                    <button class="btn btn-outline-danger" title="删除">
+                      <i class="bi bi-trash"></i>
+                    </button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-chat-quote fs-2 d-block mb-2"></i>
+          还没有关键词规则，请在左侧添加
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleTimeFields() {
+  const cb = document.getElementById('has_time');
+  document.getElementById('time-fields').style.display = cb.checked ? 'block' : 'none';
+}
+function toggleRandomFields() {
+  const cb = document.getElementById('use_random');
+  document.getElementById('random-fields').style.display = cb.checked ? 'block' : 'none';
+}
+
+// ── 目标实体识别 + 话题检测 (keywords 添加表单) ──
+const FIRST_ACCOUNT_ID = {{ accounts[0].id if accounts else 'null' }};
+let _resolveTimer = null;
+
+const KIND_BADGE = {
+  user:       ['bg-info text-dark',    'bi-person',         '用户'],
+  bot:        ['bg-secondary',         'bi-robot',          '机器人'],
+  group:      ['bg-success',           'bi-people',         '群组'],
+  supergroup: ['bg-success',           'bi-people-fill',    '超级群'],
+  channel:    ['bg-primary',           'bi-megaphone-fill', '频道'],
+  unknown:    ['bg-warning text-dark', 'bi-question',       '未知'],
+};
+
+function scheduleDetect() {
+  clearTimeout(_resolveTimer);
+  _resolveTimer = setTimeout(() => resolveTarget(null), 700);
+}
+
+function getAccountId(selId) {
+  const sel = document.getElementById(selId || 'kw-account');
+  return (sel && sel.value) ? sel.value : FIRST_ACCOUNT_ID;
+}
+
+async function resolveTarget(preselect, inputId, acctSelId, badgeId, hintId, topicSecId, topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId, topicHelpId) {
+  // 用默认 ID（keywords 添加表单中只有一套 UI）
+  inputId       = inputId       || 'kw-target-group';
+  acctSelId     = acctSelId     || 'kw-account';
+  badgeId       = badgeId       || 'kw-target-badge';
+  hintId        = hintId        || 'kw-target-hint';
+  topicSecId    = topicSecId    || 'topic-section';
+  topicLoadId   = topicLoadId   || 'topic-loading';
+  topicSelWrapId= topicSelWrapId|| 'topic-select-wrap';
+  topicSelId    = topicSelId    || 'topic_id_select';
+  topicInpWrapId= topicInpWrapId|| 'topic-input-wrap';
+  topicInpId    = topicInpId    || 'topic_id_input';
+  topicHelpId   = topicHelpId   || 'topic-help';
+
+  const targetId  = (document.getElementById(inputId).value || '').trim();
+  const accountId = getAccountId(acctSelId);
+  const badge     = document.getElementById(badgeId);
+  const hint      = document.getElementById(hintId);
+  const section   = document.getElementById(topicSecId);
+
+  if (!targetId || !accountId) {
+    if (badge) badge.innerHTML = '';
+    section.style.display = 'none';
+    _resetTopicUI(topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId);
+    return;
+  }
+
+  // 先清标签，显示加载中
+  if (badge) badge.innerHTML = '<span class="badge bg-light text-muted"><span class="spinner-border spinner-border-sm me-1"></span>识别中…</span>';
+
+  try {
+    const resp = await fetch(`/accounts/${accountId}/resolve/${encodeURIComponent(targetId)}`);
+    const data = await resp.json();
+    if (data.error) {
+      if (badge) badge.innerHTML = `<span class="badge bg-danger" title="${data.error}"><i class="bi bi-exclamation-triangle me-1"></i>无法识别</span>`;
+      section.style.display = 'none';
+      _resetTopicUI(topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId);
+      return;
+    }
+    const [bgCls, icon, label] = KIND_BADGE[data.kind] || KIND_BADGE.unknown;
+    if (badge) badge.innerHTML = `<span class="badge ${bgCls}" title="${data.name}"><i class="bi ${icon} me-1"></i>${label}：${data.name}</span>`;
+    if (hint)  hint.textContent = `已识别为「${label}」（ID: ${data.id}）`;
+
+    // 仅频道/超级群才检测话题
+    if (data.is_forum) {
+      _detectTopics(accountId, targetId, preselect, topicSecId, topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId, topicHelpId);
+    } else {
+      section.style.display = 'none';
+      _resetTopicUI(topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId);
+    }
+  } catch(e) {
+    if (badge) badge.innerHTML = '';
+    section.style.display = 'none';
+  }
+}
+
+async function _detectTopics(accountId, targetId, preselect, topicSecId, topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId, topicHelpId) {
+  const section = document.getElementById(topicSecId);
+  section.style.display = '';
+  document.getElementById(topicLoadId).classList.remove('d-none');
+  document.getElementById(topicInpWrapId).classList.add('d-none');
+  document.getElementById(topicSelWrapId).classList.add('d-none');
+  try {
+    const resp = await fetch(`/accounts/${accountId}/dialogs/${encodeURIComponent(targetId)}/topics`);
+    const data = await resp.json();
+    if (data.is_forum && data.topics && data.topics.length) {
+      _showSelect(data.topics, preselect, topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId, topicHelpId);
+    } else {
+      _showInput(preselect, topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId);
+    }
+  } catch(e) {
+    _showInput(preselect, topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId);
+  }
+}
+
+function _resetTopicUI(topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId) {
+  document.getElementById(topicLoadId).classList.add('d-none');
+  document.getElementById(topicInpWrapId).classList.add('d-none');
+  document.getElementById(topicSelWrapId).classList.add('d-none');
+  document.getElementById(topicInpId).disabled = false;
+  document.getElementById(topicSelId).disabled = true;
+}
+
+function _showInput(preselect, topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId) {
+  document.getElementById(topicLoadId).classList.add('d-none');
+  document.getElementById(topicSelWrapId).classList.add('d-none');
+  document.getElementById(topicInpWrapId).classList.remove('d-none');
+  document.getElementById(topicInpId).disabled = false;
+  document.getElementById(topicSelId).disabled = true;
+  if (preselect != null) document.getElementById(topicInpId).value = preselect;
+}
+
+function _showSelect(topics, preselect, topicLoadId, topicSelWrapId, topicSelId, topicInpWrapId, topicInpId, topicHelpId) {
+  document.getElementById(topicLoadId).classList.add('d-none');
+  document.getElementById(topicInpWrapId).classList.add('d-none');
+  document.getElementById(topicSelWrapId).classList.remove('d-none');
+  const inp = document.getElementById(topicInpId);
+  const sel = document.getElementById(topicSelId);
+  inp.disabled = true;
+  sel.disabled = false;
+  sel.innerHTML = '<option value="">（不指定 / 默认话题）</option>';
+  topics.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = `#${t.id}  ${t.title}`;
+    if (preselect != null && String(t.id) === String(preselect)) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  const helpEl = document.getElementById(topicHelpId);
+  if (helpEl) helpEl.textContent = '已检测到 Forum 话题，请从列表中选择。';
+}
+</script>
+{% endblock %}
