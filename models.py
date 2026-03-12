@@ -49,8 +49,11 @@ class Keyword(db.Model):
     keyword = db.Column(db.String(500), nullable=False)
     # 是否需要从消息中解析等待时间
     has_time_requirement = db.Column(db.Boolean, default=False)
-    # 在解析出的时间基础上额外等待的秒数（缓冲）
+    # 在解析出的时间基础上额外等待的秒数（固定缓冲）
     time_buffer_seconds = db.Column(db.Integer, default=30)
+    # 随机缓冲：若 buffer_random_max > 0，则缓冲时间从 [buffer_random_min, buffer_random_max] 随机取
+    buffer_random_min = db.Column(db.Integer, default=0)
+    buffer_random_max = db.Column(db.Integer, default=0)
     reply_message = db.Column(db.Text, nullable=False)
     # 指定发送目标群组（可选）。填写后回复固定发到此群组，而非触发消息所在的聊天
     target_group_id = db.Column(db.String(100))
@@ -71,6 +74,8 @@ class Keyword(db.Model):
             'keyword': self.keyword,
             'has_time_requirement': self.has_time_requirement,
             'time_buffer_seconds': self.time_buffer_seconds,
+            'buffer_random_min': self.buffer_random_min,
+            'buffer_random_max': self.buffer_random_max,
             'reply_message': self.reply_message,
             'target_group_id': self.target_group_id,
             'target_group_name': self.target_group_name,
@@ -96,6 +101,13 @@ class ScheduledTask(db.Model):
     task_type = db.Column(db.String(20), default='interval')
     interval_minutes = db.Column(db.Integer)
     cron_expression = db.Column(db.String(100))
+    # 随机延迟：在触发时间后额外随机等待 [min, max] 秒，0 表示不启用
+    random_delay_min = db.Column(db.Integer, default=0)
+    random_delay_max = db.Column(db.Integer, default=0)
+    # 上次实际执行时间（记录于 _send_scheduled_message 执行成功后，用于断点续时）
+    last_run_at = db.Column(db.DateTime, nullable=True)
+    # 上次调度器记录的下次运行时间（辅助字段，保留备用）
+    next_run_at = db.Column(db.DateTime, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -109,6 +121,8 @@ class ScheduledTask(db.Model):
             'task_type': self.task_type,
             'interval_minutes': self.interval_minutes,
             'cron_expression': self.cron_expression,
+            'random_delay_min': self.random_delay_min,
+            'random_delay_max': self.random_delay_max,
             'is_active': self.is_active,
         }
 
@@ -169,4 +183,28 @@ class Whitelist(db.Model):
             'entity_type': self.entity_type,
             'note': self.note,
             'is_active': self.is_active,
+        }
+
+
+class TargetEntity(db.Model):
+    """目标列表：保存曾使用过的发送目标（群组/频道/用户/机器人）"""
+    __tablename__ = 'target_entities'
+
+    id = db.Column(db.Integer, primary_key=True)
+    entity_id = db.Column(db.String(50), unique=True, nullable=False)  # Telegram 数字 ID
+    name = db.Column(db.String(200), default='')   # 显示名称
+    # user / bot / group / supergroup / channel / unknown
+    entity_type = db.Column(db.String(20), default='unknown')
+    note = db.Column(db.String(200), default='')
+    topic_id = db.Column(db.Integer, nullable=True)   # 关联的 Forum 话题 ID（可选）
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'entity_id': self.entity_id,
+            'name': self.name,
+            'entity_type': self.entity_type,
+            'note': self.note,
+            'topic_id': self.topic_id,
         }

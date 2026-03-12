@@ -1,0 +1,330 @@
+{% extends 'base.html' %}
+{% block title %}目标列表 - TG Bot{% endblock %}
+{% block page_title %}目标列表{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <!-- 手动添加 -->
+  <div class="col-lg-4">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-plus-circle me-1"></i>手动添加目标
+      </div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('targets.add') }}" id="target-form">
+          <!-- 用于自动检测的账号（不提交） -->
+          <div class="mb-3">
+            <label class="form-label text-muted small">选择账号（用于自动检测类型）</label>
+            <select id="tgt-account" class="form-select form-select-sm"
+                    onchange="scheduleDetect()">
+              <option value="">— 选择账号以自动识别 —</option>
+              {% for acc in accounts %}
+              <option value="{{ acc.id }}">{{ acc.name }} ({{ acc.phone }})</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">目标 ID <span class="text-danger">*</span>
+              <span id="tgt-badge" class="ms-1"></span>
+            </label>
+            <input type="text" name="entity_id" id="tgt-id" class="form-control"
+                   placeholder="数字 ID（如 -1002517347269）" required
+                   oninput="scheduleDetect()">
+            <div class="form-text" id="tgt-hint">输入 ID 后将自动识别类型和名称</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">显示名称</label>
+            <input type="text" name="name" id="tgt-name" class="form-control"
+                   placeholder="便于识别的名称（自动填入或手动输入）">
+          </div>
+
+          <!-- 类型：隐藏真实值，显示识别结果；未识别时用 select 手动选 -->
+          <div class="mb-3">
+            <label class="form-label">类型</label>
+            <div id="tgt-type-detected" class="d-none mb-1"></div>
+            <div id="tgt-type-manual">
+              <select name="entity_type" id="tgt-type-select" class="form-select form-select-sm">
+                <option value="unknown">未知</option>
+                <option value="user">用户 (user)</option>
+                <option value="bot">机器人 (bot)</option>
+                <option value="group">群组 (group)</option>
+                <option value="supergroup">超级群 (supergroup)</option>
+                <option value="channel">频道 (channel)</option>
+              </select>
+            </div>
+            <!-- 识别成功后的隐藏 input 覆盖 select -->
+            <input type="hidden" name="entity_type" id="tgt-type-hidden" disabled>
+          </div>
+
+          <!-- 话题区（仅 Forum 群组弹出） -->
+          <div id="tgt-topic-section" class="mb-3" style="display:none">
+            <label class="form-label">
+              <i class="bi bi-chat-square-text me-1"></i>关联话题
+            </label>
+            <div id="tgt-topic-loading" class="d-none text-muted small py-1">
+              <span class="spinner-border spinner-border-sm me-1"></span>正在获取话题列表…
+            </div>
+            <div id="tgt-topic-select-wrap" class="d-none">
+              <select name="topic_id" id="tgt-topic-select" class="form-select" disabled>
+                <option value="">（不指定话题）</option>
+              </select>
+            </div>
+            <div id="tgt-topic-input-wrap" class="d-none">
+              <input type="number" name="topic_id" id="tgt-topic-input" class="form-control"
+                     placeholder="手动输入话题 ID">
+            </div>
+            <div class="form-text" id="tgt-topic-help"></div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">备注</label>
+            <input type="text" name="note" class="form-control" placeholder="可选说明">
+          </div>
+          <button type="submit" class="btn btn-primary w-100">
+            <i class="bi bi-plus-circle me-1"></i>添加到目标列表
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 目标列表 -->
+  <div class="col-lg-8">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-bookmark-star me-1"></i>已保存目标
+        <span class="badge bg-secondary ms-1">{{ targets|length }}</span>
+      </div>
+      <div class="card-body p-0">
+        {% if targets %}
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>名称</th>
+              <th>ID</th>
+              <th>类型</th>
+              <th>话题</th>
+              <th>备注</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for t in targets %}
+            <tr>
+              <td class="fw-semibold small">{{ t.name or '—' }}</td>
+              <td class="small text-muted font-monospace">{{ t.entity_id }}</td>
+              <td>
+                {% set type_map = {
+                  'user': ('bg-info text-dark', 'bi-person', '用户'),
+                  'bot': ('bg-secondary', 'bi-robot', '机器人'),
+                  'group': ('bg-success', 'bi-people', '群组'),
+                  'supergroup': ('bg-success', 'bi-people-fill', '超级群'),
+                  'channel': ('bg-primary', 'bi-megaphone-fill', '频道'),
+                  'unknown': ('bg-light text-dark', 'bi-question', '未知'),
+                } %}
+                {% set badge = type_map.get(t.entity_type, type_map['unknown']) %}
+                <span class="badge {{ badge[0] }}">
+                  <i class="bi {{ badge[1] }} me-1"></i>{{ badge[2] }}
+                </span>
+              </td>
+              <td class="small">
+                {% if t.topic_id %}
+                  <span class="badge bg-primary"><i class="bi bi-chat-square-text me-1"></i>#{{ t.topic_id }}</span>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+              <td class="small text-muted">{{ t.note or '—' }}</td>
+              <td>
+                <form method="post" action="{{ url_for('targets.delete', target_id=t.id) }}"
+                      class="d-inline"
+                      onsubmit="return confirm('确定删除此目标？')">
+                  <button class="btn btn-sm btn-outline-danger" title="删除">
+                    <i class="bi bi-trash"></i>
+                  </button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <div class="text-center text-muted py-5">
+          <i class="bi bi-bookmark-star fs-2 d-block mb-2"></i>
+          还没有保存的目标，在定时任务或关键词回复中填写目标后将自动保存
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const KIND_BADGE = {
+  user:       ['bg-info text-dark',    'bi-person',         '用户'],
+  bot:        ['bg-secondary',         'bi-robot',          '机器人'],
+  group:      ['bg-success',           'bi-people',         '群组'],
+  supergroup: ['bg-success',           'bi-people-fill',    '超级群'],
+  channel:    ['bg-primary',           'bi-megaphone-fill', '频道'],
+  unknown:    ['bg-warning text-dark', 'bi-question',       '未知'],
+};
+
+let _detTimer = null;
+function scheduleDetect() {
+  clearTimeout(_detTimer);
+  _detTimer = setTimeout(resolveTarget, 700);
+}
+
+async function resolveTarget() {
+  const targetId  = (document.getElementById('tgt-id').value || '').trim();
+  const accountId = (document.getElementById('tgt-account').value || '').trim();
+  const badge     = document.getElementById('tgt-badge');
+  const hint      = document.getElementById('tgt-hint');
+  const section   = document.getElementById('tgt-topic-section');
+  const detected  = document.getElementById('tgt-type-detected');
+  const manual    = document.getElementById('tgt-type-manual');
+  const hidden    = document.getElementById('tgt-type-hidden');
+
+  if (!targetId || !accountId) {
+    badge.innerHTML = '';
+    hint.textContent = '输入 ID 后将自动识别类型和名称';
+    section.style.display = 'none';
+    _resetTopicUI();
+    _showManualType();
+    return;
+  }
+
+  badge.innerHTML = '<span class="badge bg-light text-muted"><span class="spinner-border spinner-border-sm me-1"></span>识别中…</span>';
+
+  try {
+    const resp = await fetch(`/accounts/${accountId}/resolve/${encodeURIComponent(targetId)}`);
+    const data = await resp.json();
+    if (data.error) {
+      badge.innerHTML = `<span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>无法识别</span>`;
+      hint.textContent = data.error;
+      section.style.display = 'none';
+      _resetTopicUI();
+      _showManualType();
+      return;
+    }
+
+    const [bgCls, icon, label] = KIND_BADGE[data.kind] || KIND_BADGE.unknown;
+    badge.innerHTML = `<span class="badge ${bgCls}"><i class="bi ${icon} me-1"></i>${label}：${data.name}</span>`;
+    hint.textContent = `已识别为「${label}」（ID: ${data.id}）`;
+
+    // 自动填入名称（如果还空）
+    const nameField = document.getElementById('tgt-name');
+    if (nameField && !nameField.value) nameField.value = data.name;
+
+    // 自动设置类型
+    _setDetectedType(data.kind, label, bgCls, icon);
+
+    if (data.is_forum) {
+      await _detectTopics(accountId, targetId);
+    } else {
+      section.style.display = 'none';
+      _resetTopicUI();
+    }
+  } catch(e) {
+    badge.innerHTML = '';
+    _showManualType();
+  }
+}
+
+function _setDetectedType(kind, label, bgCls, icon) {
+  const detected = document.getElementById('tgt-type-detected');
+  const manual   = document.getElementById('tgt-type-manual');
+  const hidden   = document.getElementById('tgt-type-hidden');
+  const sel      = document.getElementById('tgt-type-select');
+
+  detected.innerHTML = `<span class="badge ${bgCls}"><i class="bi ${icon} me-1"></i>${label}</span>
+    <a href="#" class="ms-2 small text-muted" onclick="event.preventDefault();_showManualType()">手动修改</a>`;
+  detected.classList.remove('d-none');
+  manual.classList.add('d-none');
+
+  hidden.value = kind;
+  hidden.disabled = false;
+  sel.disabled = true;
+  // 禁用 select 的 name，让 hidden 覆盖
+  sel.name = '';
+  hidden.name = 'entity_type';
+}
+
+function _showManualType() {
+  const detected = document.getElementById('tgt-type-detected');
+  const manual   = document.getElementById('tgt-type-manual');
+  const hidden   = document.getElementById('tgt-type-hidden');
+  const sel      = document.getElementById('tgt-type-select');
+
+  detected.classList.add('d-none');
+  manual.classList.remove('d-none');
+  hidden.disabled = true;
+  hidden.name = '';
+  sel.disabled = false;
+  sel.name = 'entity_type';
+}
+
+async function _detectTopics(accountId, targetId) {
+  const section = document.getElementById('tgt-topic-section');
+  section.style.display = '';
+  document.getElementById('tgt-topic-loading').classList.remove('d-none');
+  document.getElementById('tgt-topic-input-wrap').classList.add('d-none');
+  document.getElementById('tgt-topic-select-wrap').classList.add('d-none');
+  try {
+    const resp = await fetch(`/accounts/${accountId}/dialogs/${encodeURIComponent(targetId)}/topics`);
+    const data = await resp.json();
+    if (data.is_forum && data.topics && data.topics.length) {
+      _showSelect(data.topics);
+    } else {
+      _showInput();
+    }
+  } catch(e) {
+    _showInput();
+  }
+}
+
+function _resetTopicUI() {
+  document.getElementById('tgt-topic-loading').classList.add('d-none');
+  document.getElementById('tgt-topic-input-wrap').classList.add('d-none');
+  document.getElementById('tgt-topic-select-wrap').classList.add('d-none');
+  const inp = document.getElementById('tgt-topic-input');
+  const sel = document.getElementById('tgt-topic-select');
+  if (inp) { inp.disabled = false; inp.name = 'topic_id'; }
+  if (sel) { sel.disabled = true;  sel.name = ''; }
+}
+
+function _showInput() {
+  document.getElementById('tgt-topic-loading').classList.add('d-none');
+  document.getElementById('tgt-topic-select-wrap').classList.add('d-none');
+  document.getElementById('tgt-topic-input-wrap').classList.remove('d-none');
+  document.getElementById('tgt-topic-input').disabled = false;
+  document.getElementById('tgt-topic-input').name = 'topic_id';
+  document.getElementById('tgt-topic-select').disabled = true;
+  document.getElementById('tgt-topic-select').name = '';
+  document.getElementById('tgt-topic-help').textContent = '未能获取话题列表，可手动输入话题 ID。';
+}
+
+function _showSelect(topics) {
+  document.getElementById('tgt-topic-loading').classList.add('d-none');
+  document.getElementById('tgt-topic-input-wrap').classList.add('d-none');
+  document.getElementById('tgt-topic-select-wrap').classList.remove('d-none');
+  document.getElementById('tgt-topic-input').disabled = true;
+  document.getElementById('tgt-topic-input').name = '';
+  const sel = document.getElementById('tgt-topic-select');
+  sel.disabled = false;
+  sel.name = 'topic_id';
+  sel.innerHTML = '<option value="">（不指定话题）</option>';
+  topics.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = `#${t.id}  ${t.title}`;
+    sel.appendChild(opt);
+  });
+  document.getElementById('tgt-topic-help').textContent = '已检测到 Forum 话题，请从列表中选择（可选）。';
+}
+</script>
+{% endblock %}

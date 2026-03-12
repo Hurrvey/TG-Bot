@@ -39,9 +39,36 @@
             </div>
           </div>
           <div id="time-fields" class="mb-3" style="display:{{ 'block' if kw.has_time_requirement else 'none' }}">
-            <label class="form-label">额外缓冲时间（秒）</label>
-            <input type="number" name="time_buffer_seconds" class="form-control"
-                   value="{{ kw.time_buffer_seconds }}" min="0" max="3600">
+            <label class="form-label">额外缓冲时间</label>
+            <div class="btn-group w-100 mb-2" role="group">
+              {% set is_buf_random = kw.buffer_random_max and kw.buffer_random_max > 0 %}
+              <input type="radio" class="btn-check" name="buffer_type" id="buf_fixed"
+                     value="fixed" {{ '' if is_buf_random else 'checked' }} onchange="toggleBufferType()">
+              <label class="btn btn-outline-secondary btn-sm" for="buf_fixed">固定秒数</label>
+              <input type="radio" class="btn-check" name="buffer_type" id="buf_random"
+                     value="random" {{ 'checked' if is_buf_random else '' }} onchange="toggleBufferType()">
+              <label class="btn btn-outline-secondary btn-sm" for="buf_random">随机区间</label>
+            </div>
+            <div id="buf-fixed-wrap" style="display:{{ 'none' if is_buf_random else 'block' }}">
+              <div class="input-group">
+                <input type="number" name="time_buffer_seconds" class="form-control"
+                       value="{{ kw.time_buffer_seconds }}" min="0" max="3600">
+                <span class="input-group-text">秒</span>
+              </div>
+              <div class="form-text">在解析出的等待时间基础上额外等待的固定秒数（推荐 30~120）</div>
+            </div>
+            <div id="buf-random-wrap" style="display:{{ 'block' if is_buf_random else 'none' }}">
+              <div class="input-group">
+                <span class="input-group-text">最少</span>
+                <input type="number" name="buffer_random_min" class="form-control"
+                       value="{{ kw.buffer_random_min or 30 }}" min="0">
+                <span class="input-group-text">最多</span>
+                <input type="number" name="buffer_random_max" class="form-control"
+                       value="{{ kw.buffer_random_max or 120 }}" min="0">
+                <span class="input-group-text">秒</span>
+              </div>
+              <div class="form-text">每次触发时，在此区间内随机抽取一个缓冲秒数叠加到解析时间上</div>
+            </div>
           </div>
           <div class="mb-3">
             <div class="form-check form-switch">
@@ -127,6 +154,11 @@
 function toggleTimeFields() {
   const cb = document.getElementById('has_time');
   document.getElementById('time-fields').style.display = cb.checked ? 'block' : 'none';
+}
+function toggleBufferType() {
+  const isRandom = document.getElementById('buf_random').checked;
+  document.getElementById('buf-fixed-wrap').style.display = isRandom ? 'none' : 'block';
+  document.getElementById('buf-random-wrap').style.display = isRandom ? 'block' : 'none';
 }
 function toggleRandomFields() {
   const cb = document.getElementById('use_random');

@@ -41,11 +41,34 @@
             </div>
           </div>
           <div id="time-fields" class="mb-3" style="display:none">
-            <label class="form-label">额外缓冲时间（秒）</label>
-            <input type="number" name="time_buffer_seconds" class="form-control"
-                   value="30" min="0" max="3600">
-            <div class="form-text">
-              在解析出的等待时间基础上额外等待的秒数（推荐 30~120）
+            <label class="form-label">额外缓冲时间</label>
+            <div class="btn-group w-100 mb-2" role="group">
+              <input type="radio" class="btn-check" name="buffer_type" id="buf_fixed"
+                     value="fixed" checked onchange="toggleBufferType()">
+              <label class="btn btn-outline-secondary btn-sm" for="buf_fixed">固定秒数</label>
+              <input type="radio" class="btn-check" name="buffer_type" id="buf_random"
+                     value="random" onchange="toggleBufferType()">
+              <label class="btn btn-outline-secondary btn-sm" for="buf_random">随机区间</label>
+            </div>
+            <div id="buf-fixed-wrap">
+              <div class="input-group">
+                <input type="number" name="time_buffer_seconds" class="form-control"
+                       value="30" min="0" max="3600">
+                <span class="input-group-text">秒</span>
+              </div>
+              <div class="form-text">在解析出的等待时间基础上额外等待的固定秒数（推荐 30~120）</div>
+            </div>
+            <div id="buf-random-wrap" style="display:none">
+              <div class="input-group">
+                <span class="input-group-text">最少</span>
+                <input type="number" name="buffer_random_min" class="form-control"
+                       value="30" min="0">
+                <span class="input-group-text">最多</span>
+                <input type="number" name="buffer_random_max" class="form-control"
+                       value="120" min="0">
+                <span class="input-group-text">秒</span>
+              </div>
+              <div class="form-text">每次触发时，在此区间内随机抽取一个缓冲秒数叠加到解析时间上</div>
             </div>
           </div>
           <div class="mb-3">
@@ -78,6 +101,13 @@
             <textarea name="reply_message" class="form-control" rows="3"
                       placeholder="触发后发送的消息内容" required></textarea>
           </div>
+          <div class="mb-2">
+            <label class="form-label">从已保存目标中选择</label>
+            <select id="kw-target-select" class="form-select form-select-sm"
+                    onchange="fillTargetFromList('kw-target-select','kw-target-group','kw-target-name')">
+              <option value="">— 手动输入 / 从列表选择 —</option>
+            </select>
+          </div>
           <div class="mb-3">
             <label class="form-label">发送目标 ID
               <span id="kw-target-badge" class="ms-1"></span>
@@ -91,7 +121,7 @@
           </div>
           <div class="mb-3">
             <label class="form-label">目标备注</label>
-            <input type="text" name="target_group_name" class="form-control"
+            <input type="text" name="target_group_name" id="kw-target-name" class="form-control"
                    placeholder="可选，便于识别">
           </div>          <div class="mb-3" id="topic-section" style="display:none">
             <label class="form-label">
@@ -239,6 +269,11 @@ function toggleTimeFields() {
   const cb = document.getElementById('has_time');
   document.getElementById('time-fields').style.display = cb.checked ? 'block' : 'none';
 }
+function toggleBufferType() {
+  const isRandom = document.getElementById('buf_random').checked;
+  document.getElementById('buf-fixed-wrap').style.display = isRandom ? 'none' : 'block';
+  document.getElementById('buf-random-wrap').style.display = isRandom ? 'block' : 'none';
+}
 function toggleRandomFields() {
   const cb = document.getElementById('use_random');
   document.getElementById('random-fields').style.display = cb.checked ? 'block' : 'none';
@@ -378,5 +413,38 @@ function _showSelect(topics, preselect, topicLoadId, topicSelWrapId, topicSelId,
   const helpEl = document.getElementById(topicHelpId);
   if (helpEl) helpEl.textContent = '已检测到 Forum 话题，请从列表中选择。';
 }
+
+// ── 目标列表快速填充 ──
+function fillTargetFromList(selectId, idFieldId, nameFieldId) {
+  const sel = document.getElementById(selectId);
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value) return;
+  document.getElementById(idFieldId).value = opt.value;
+  const nameField = document.getElementById(nameFieldId);
+  if (nameField && opt.dataset.name) nameField.value = opt.dataset.name;
+  scheduleDetect();
+  sel.selectedIndex = 0;
+}
+
+async function loadTargetList() {
+  try {
+    const resp = await fetch('/targets/api');
+    const data = await resp.json();
+    ['kw-target-select'].forEach(sid => {
+      const sel = document.getElementById(sid);
+      if (!sel) return;
+      while (sel.options.length > 1) sel.remove(1);
+      data.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.entity_id;
+        opt.dataset.name = t.name || '';
+        const typeLabel = { user:'用户', bot:'机器人', group:'群组', supergroup:'超级群', channel:'频道', unknown:'未知' }[t.entity_type] || '';
+        opt.textContent = `${t.name || t.entity_id}  [${typeLabel}]  ${t.entity_id}`;
+        sel.appendChild(opt);
+      });
+    });
+  } catch(e) {}
+}
+document.addEventListener('DOMContentLoaded', loadTargetList);
 </script>
 {% endblock %}

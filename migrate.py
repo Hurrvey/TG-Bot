@@ -25,6 +25,17 @@ with app.app_context():
         ('ALTER TABLE pending_replies ADD COLUMN topic_id INTEGER', 'pending_replies.topic_id'),
         # scheduled_tasks 表 — topic_id
         ('ALTER TABLE scheduled_tasks ADD COLUMN topic_id INTEGER', 'scheduled_tasks.topic_id'),
+        # scheduled_tasks 表 — 随机延迟
+        ('ALTER TABLE scheduled_tasks ADD COLUMN random_delay_min INTEGER DEFAULT 0', 'scheduled_tasks.random_delay_min'),
+        ('ALTER TABLE scheduled_tasks ADD COLUMN random_delay_max INTEGER DEFAULT 0', 'scheduled_tasks.random_delay_max'),
+        # keywords 表 — 随机缓冲时间
+        ('ALTER TABLE keywords ADD COLUMN buffer_random_min INTEGER DEFAULT 0', 'keywords.buffer_random_min'),
+        ('ALTER TABLE keywords ADD COLUMN buffer_random_max INTEGER DEFAULT 0', 'keywords.buffer_random_max'),
+        # target_entities 表 — 关联话题
+        ('ALTER TABLE target_entities ADD COLUMN topic_id INTEGER', 'target_entities.topic_id'),
+        # scheduled_tasks 表 — 断点续时
+        ('ALTER TABLE scheduled_tasks ADD COLUMN next_run_at DATETIME', 'scheduled_tasks.next_run_at'),
+        ('ALTER TABLE scheduled_tasks ADD COLUMN last_run_at DATETIME', 'scheduled_tasks.last_run_at'),
     ]
 
     for sql, label in migrations:

@@ -1,0 +1,203 @@
+{% extends 'base.html' %}
+{% block title %}发送队列 - TG Bot{% endblock %}
+{% block page_title %}发送队列{% endblock %}
+
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-auto">
+    <span class="text-muted small">每 5 秒自动刷新 &nbsp;·&nbsp; 上次更新: <span id="last-update">—</span></span>
+  </div>
+  <div class="col-auto ms-auto">
+    <button class="btn btn-sm btn-outline-primary" onclick="loadQueue()">
+      <i class="bi bi-arrow-clockwise me-1"></i>立即刷新
+    </button>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2">
+    <i class="bi bi-hourglass-split text-warning"></i>
+    待发送任务
+    <span class="badge bg-secondary ms-1" id="total-count">0</span>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0" id="queue-table">
+        <thead class="table-light">
+          <tr>
+            <th style="width:110px">类型</th>
+            <th>账号</th>
+            <th>目标</th>
+            <th>消息内容</th>
+            <th>计划时间</th>
+            <th style="width:160px">剩余时间</th>
+            <th>备注</th>
+          </tr>
+        </thead>
+        <tbody id="queue-body">
+          <tr id="loading-row">
+            <td colspan="7" class="text-center text-muted py-4">
+              <div class="spinner-border spinner-border-sm me-2"></div>加载中…
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<style>
+  .countdown-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: #e9ecef;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .countdown-bar-inner {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 1s linear, background-color 0.5s;
+  }
+  .remaining-label { font-weight: 600; font-size: .92rem; }
+  .remaining-urgent { color: #dc3545; }
+  .remaining-warn   { color: #fd7e14; }
+  .remaining-ok     { color: #198754; }
+  .type-badge-pending  { background: #0dcaf0; }
+  .type-badge-task     { background: #6610f2; }
+</style>
+
+<script>
+// 存储原始剩余秒数（每次 API 刷新后重置）
+let queueData = [];
+let countdownInterval = null;
+let totalSeconds = {};  // id_key -> 当前剩余秒数（用于本地倒计时）
+let maxSeconds = {};    // id_key -> 首次加载时的秒数（用于计算进度条）
+
+function fmtTime(sec) {
+  if (sec === null || sec === undefined) return '—';
+  if (sec <= 0) return '<span class="text-danger fw-bold">即将发送</span>';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  let parts = [];
+  if (h > 0) parts.push(h + ' 时');
+  if (m > 0 || h > 0) parts.push(m + ' 分');
+  parts.push(s + ' 秒');
+  return parts.join(' ');
+}
+
+function urgencyClass(sec) {
+  if (sec === null || sec === undefined) return '';
+  if (sec <= 30) return 'remaining-urgent';
+  if (sec <= 120) return 'remaining-warn';
+  return 'remaining-ok';
+}
+
+function barColor(sec) {
+  if (sec === null || sec === undefined) return '#adb5bd';
+  if (sec <= 30) return '#dc3545';
+  if (sec <= 120) return '#fd7e14';
+  return '#198754';
+}
+
+function buildRow(item) {
+  const key = item.type + '_' + item.id;
+  const sec = item.remaining_seconds;
+  const maxSec = maxSeconds[key] || sec || 1;
+
+  const typeBadge = item.type === 'pending_reply'
+    ? '<span class="badge type-badge-pending">关键词回复</span>'
+    : '<span class="badge type-badge-task">定时任务</span>';
+
+  const target = item.group_name
+    ? `<span class="d-block">${item.group_name}</span><small class="text-muted">${item.group_id}</small>`
+    : `<span>${item.group_id}</span>`;
+
+  const remark = item.type === 'pending_reply'
+    ? `<small class="text-muted text-truncate d-block" style="max-width:150px" title="${item.triggered_by}">${item.triggered_by || '—'}</small>`
+    : `<small class="text-muted">${item.task_info || ''}</small>` +
+      (item.random_delay ? `<br><small class="text-info">${item.random_delay}</small>` : '');
+
+  const pct = sec !== null ? Math.min(100, Math.round((sec / maxSec) * 100)) : 0;
+  const color = barColor(sec);
+
+  return `<tr>
+    <td>${typeBadge}</td>
+    <td class="small">${item.account}</td>
+    <td class="small">${target}</td>
+    <td class="small text-truncate" style="max-width:200px" title="${item.message}">${item.message}</td>
+    <td class="small text-nowrap">${item.scheduled_at}</td>
+    <td>
+      <div class="remaining-label ${urgencyClass(sec)}" id="lbl_${key}">${fmtTime(sec)}</div>
+      <div class="countdown-bar">
+        <div class="countdown-bar-inner" id="bar_${key}"
+             style="width:${pct}%;background:${color}"></div>
+      </div>
+    </td>
+    <td>${remark}</td>
+  </tr>`;
+}
+
+async function loadQueue() {
+  try {
+    const res = await fetch('/queue/api');
+    if (!res.ok) return;
+    const data = await res.json();
+
+    queueData = data;
+    document.getElementById('total-count').textContent = data.length;
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString('zh-CN');
+
+    // 初始化最大秒数（仅在首次或 key 不存在时设置）
+    data.forEach(item => {
+      const key = item.type + '_' + item.id;
+      totalSeconds[key] = item.remaining_seconds;
+      if (!maxSeconds[key] && item.remaining_seconds > 0) {
+        maxSeconds[key] = item.remaining_seconds;
+      }
+    });
+
+    const tbody = document.getElementById('queue-body');
+    if (data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-5"><i class="bi bi-check2-circle fs-3 d-block mb-2"></i>当前没有等待发送的任务</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.map(buildRow).join('');
+  } catch (e) {
+    console.error('加载队列失败', e);
+  }
+}
+
+function tickCountdown() {
+  queueData.forEach(item => {
+    const key = item.type + '_' + item.id;
+    if (totalSeconds[key] === null || totalSeconds[key] === undefined) return;
+    if (totalSeconds[key] > 0) totalSeconds[key]--;
+
+    const sec = totalSeconds[key];
+    const lbl = document.getElementById('lbl_' + key);
+    const bar = document.getElementById('bar_' + key);
+    if (lbl) {
+      lbl.innerHTML = fmtTime(sec);
+      lbl.className = 'remaining-label ' + urgencyClass(sec);
+    }
+    if (bar) {
+      const maxSec = maxSeconds[key] || 1;
+      const pct = Math.min(100, Math.round((sec / maxSec) * 100));
+      bar.style.width = pct + '%';
+      bar.style.backgroundColor = barColor(sec);
+    }
+  });
+}
+
+// 首次加载
+loadQueue();
+
+// 每 1 秒本地倒计时
+countdownInterval = setInterval(tickCountdown, 1000);
+
+// 每 5 秒从服务器刷新一次（重置剩余时间）
+setInterval(loadQueue, 5000);
+</script>
+{% endblock %}

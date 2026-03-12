@@ -104,6 +104,18 @@
           <i class="bi bi-shield-check"></i> 白名单
         </a>
       </li>
+      <li class="nav-item">
+        <a class="nav-link {% if request.blueprint == 'targets' %}active{% endif %}"
+           href="{{ url_for('targets.index') }}">
+          <i class="bi bi-bookmark-star"></i> 目标列表
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if request.blueprint == 'queue' %}active{% endif %}"
+           href="{{ url_for('queue.index') }}">
+          <i class="bi bi-hourglass-split"></i> 发送队列
+        </a>
+      </li>
     </ul>
   </nav>
 

@@ -6,6 +6,49 @@ from time_parser import parse_chinese_time, format_seconds
 
 logger = logging.getLogger(__name__)
 
+# 同一目标两条消息之间的最短间隔（秒）
+SEND_GAP_SECONDS = 10
+
+
+def _find_send_slot(
+    account_id: int, group_id: str, desired_at,
+    gap_seconds: int = SEND_GAP_SECONDS, exclude_id: int = None
+):
+    """
+    贪心时间槽算法：为新待发消息找到不与同目标已有消息冲突的最早时间槽。
+
+    对同一 (account_id, group_id) 的未发送消息按计划时间升序遍历，
+    若当前 slot 与某已有时间的差值 < gap_seconds，则将 slot 推后至
+    该时间 + gap_seconds，继续扫描，直到无冲突为止。
+
+    时间复杂度 O(n)，n 为该目标未发送消息数（实际极小）。
+    exclude_id: 更新已有记录时，排除该记录自身避免自比较。
+    """
+    from datetime import timedelta
+    from models import PendingReply
+
+    query = PendingReply.query.filter(
+        PendingReply.account_id == account_id,
+        PendingReply.group_id == group_id,
+        PendingReply.is_sent == False,
+        PendingReply.scheduled_at >= desired_at - timedelta(seconds=gap_seconds),
+    )
+    if exclude_id is not None:
+        query = query.filter(PendingReply.id != exclude_id)
+    existing = query.order_by(PendingReply.scheduled_at.asc()).all()
+
+    slot = desired_at
+    for reply in existing:
+        e = reply.scheduled_at
+        if e < slot - timedelta(seconds=gap_seconds):
+            continue  # 远在 slot 之前，无冲突
+        if e >= slot + timedelta(seconds=gap_seconds):
+            break     # 恰好满足或超过间隔要求，无冲突，终止扫描
+        # 冲突（距离 < gap_seconds）：将 slot 推后至该消息之后
+        slot = e + timedelta(seconds=gap_seconds)
+
+    return slot
+
 
 def _is_in_schedule(start_str: str, end_str: str) -> bool:
     """判断当前本地时间是否在托管时段内，支持跨午夜（如 18:00 → 次日 08:00）"""
@@ -148,10 +191,15 @@ async def check_keywords(manager, account_id: int, client, event, msg, replied_m
                     f"触发来源: {group_name}"
                 )
                 if existing:
+                    # 更新时排除自身，避免与自己比较产生误判
+                    scheduled_at = _find_send_slot(
+                        account_id, group_id, scheduled_at, exclude_id=existing.id
+                    )
                     existing.scheduled_at = scheduled_at
                     existing.triggered_by = triggered_by_text
-                    logger.info(f"[随机时间] 更新待发回复，等待 {total_wait}s，新执行时间: {scheduled_at}")
+                    logger.info(f"[随机时间] 更新待发回复，等待 {total_wait}s，调整后执行时间: {scheduled_at}")
                 else:
+                    scheduled_at = _find_send_slot(account_id, group_id, scheduled_at)
                     pending = PendingReply(
                         account_id=account_id,
                         group_id=group_id,
@@ -161,7 +209,7 @@ async def check_keywords(manager, account_id: int, client, event, msg, replied_m
                     )
                     db.session.add(pending)
                     logger.info(
-                        f"[随机时间] 已安排定时回复，等待 {format_seconds(total_wait)} 后发送至 {send_group_name}"
+                        f"[随机时间] 已安排定时回复，调整后执行时间: {scheduled_at}，发送至 {send_group_name}"
                     )
 
             elif keyword_rule.has_time_requirement:
@@ -177,6 +225,18 @@ async def check_keywords(manager, account_id: int, client, event, msg, replied_m
                 total_wait = wait_seconds + keyword_rule.time_buffer_seconds
                 scheduled_at = datetime.utcnow() + timedelta(seconds=total_wait)
 
+                # 计算实际缓冲：随机区间优先，否则用固定值
+                buf_rmin = keyword_rule.buffer_random_min or 0
+                buf_rmax = keyword_rule.buffer_random_max or 0
+                if buf_rmax > 0 and buf_rmax >= buf_rmin:
+                    buffer_used = random.randint(buf_rmin, buf_rmax)
+                    buffer_desc = f'随机缓冲: {buffer_used}s（区间 {buf_rmin}~{buf_rmax}s）'
+                else:
+                    buffer_used = keyword_rule.time_buffer_seconds
+                    buffer_desc = f'固定缓冲: {buffer_used}s'
+                total_wait = wait_seconds + buffer_used
+                scheduled_at = datetime.utcnow() + timedelta(seconds=total_wait)
+
                 # 检查是否已有相同规则的未发送回复（避免重复）
                 existing = PendingReply.query.filter_by(
                     account_id=account_id,
@@ -187,14 +247,19 @@ async def check_keywords(manager, account_id: int, client, event, msg, replied_m
                 triggered_by_text = (
                     f"关键词: {keyword_rule.keyword}, "
                     f"解析时间: {format_seconds(wait_seconds)}, "
-                    f"缓冲: {keyword_rule.time_buffer_seconds}s, "
+                    f"{buffer_desc}, "
                     f"触发来源: {group_name}"
                 )
                 if existing:
+                    # 更新时排除自身，避免与自己比较产生误判
+                    scheduled_at = _find_send_slot(
+                        account_id, group_id, scheduled_at, exclude_id=existing.id
+                    )
                     existing.scheduled_at = scheduled_at
                     existing.triggered_by = triggered_by_text
-                    logger.info(f"更新已有待发回复，新执行时间: {scheduled_at}")
+                    logger.info(f"更新已有待发回复，调整后执行时间: {scheduled_at}")
                 else:
+                    scheduled_at = _find_send_slot(account_id, group_id, scheduled_at)
                     pending = PendingReply(
                         account_id=account_id,
                         group_id=group_id,
@@ -204,7 +269,7 @@ async def check_keywords(manager, account_id: int, client, event, msg, replied_m
                     )
                     db.session.add(pending)
                     logger.info(
-                        f"已安排定时回复，等待 {format_seconds(total_wait)} 后发送至 {send_group_name}"
+                        f"已安排定时回复，调整后执行时间: {scheduled_at}，发送至 {send_group_name}"
                     )
 
             else:

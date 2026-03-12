@@ -17,6 +17,7 @@ def add():
     keyword_text = request.form.get('keyword', '').strip()
     has_time = request.form.get('has_time_requirement') == 'on'
     buffer_secs = request.form.get('time_buffer_seconds', '30').strip()
+    buffer_type = request.form.get('buffer_type', 'fixed')
     reply_message = request.form.get('reply_message', '').strip()
 
     if not keyword_text or not reply_message:
@@ -27,6 +28,17 @@ def add():
         buffer_secs = int(buffer_secs)
     except ValueError:
         buffer_secs = 30
+
+    try:
+        buf_rand_min = int(request.form.get('buffer_random_min', '0'))
+    except ValueError:
+        buf_rand_min = 0
+    try:
+        buf_rand_max = int(request.form.get('buffer_random_max', '0'))
+    except ValueError:
+        buf_rand_max = 0
+    if buffer_type != 'random':
+        buf_rand_min = buf_rand_max = 0
 
     if account_id:
         try:
@@ -55,6 +67,8 @@ def add():
         keyword=keyword_text,
         has_time_requirement=has_time,
         time_buffer_seconds=buffer_secs,
+        buffer_random_min=buf_rand_min,
+        buffer_random_max=buf_rand_max,
         reply_message=reply_message,
         target_group_id=target_group_id,
         target_group_name=target_group_name,
@@ -66,6 +80,12 @@ def add():
     )
     db.session.add(kw)
     db.session.commit()
+
+    # 自动同步目标到目标列表（仅在填写了目标 ID 时）
+    if target_group_id:
+        from web.routes.targets import upsert_target
+        upsert_target(target_group_id, target_group_name)
+
     flash('关键词规则已添加', 'success')
     return redirect(url_for('keywords.index'))
 
@@ -83,6 +103,17 @@ def edit(kw_id):
         kw.has_time_requirement = request.form.get('has_time_requirement') == 'on'
         buf = request.form.get('time_buffer_seconds', '30').strip()
         kw.time_buffer_seconds = int(buf) if buf.isdigit() else 30
+        buffer_type = request.form.get('buffer_type', 'fixed')
+        try:
+            kw.buffer_random_min = int(request.form.get('buffer_random_min', '0'))
+        except ValueError:
+            kw.buffer_random_min = 0
+        try:
+            kw.buffer_random_max = int(request.form.get('buffer_random_max', '0'))
+        except ValueError:
+            kw.buffer_random_max = 0
+        if buffer_type != 'random':
+            kw.buffer_random_min = kw.buffer_random_max = 0
         kw.reply_message = request.form.get('reply_message', '').strip()
         kw.target_group_id = request.form.get('target_group_id', '').strip() or None
         kw.target_group_name = request.form.get('target_group_name', '').strip()

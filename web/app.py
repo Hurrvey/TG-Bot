@@ -23,6 +23,8 @@ def create_app(telegram_manager=None):
     from web.routes.tasks import tasks_bp
     from web.routes.logs import logs_bp
     from web.routes.whitelist import whitelist_bp
+    from web.routes.targets import targets_bp
+    from web.routes.queue import queue_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(accounts_bp, url_prefix='/accounts')
@@ -30,5 +32,7 @@ def create_app(telegram_manager=None):
     app.register_blueprint(tasks_bp, url_prefix='/tasks')
     app.register_blueprint(logs_bp, url_prefix='/logs')
     app.register_blueprint(whitelist_bp, url_prefix='/whitelist')
+    app.register_blueprint(targets_bp, url_prefix='/targets')
+    app.register_blueprint(queue_bp, url_prefix='/queue')
 
     return app

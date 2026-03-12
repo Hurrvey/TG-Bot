@@ -22,6 +22,8 @@ def add():
     task_type = request.form.get('task_type', 'interval')
     interval_minutes = request.form.get('interval_minutes', '').strip()
     cron_expression = request.form.get('cron_expression', '').strip()
+    random_delay_min = request.form.get('random_delay_min', '0').strip()
+    random_delay_max = request.form.get('random_delay_max', '0').strip()
 
     if not all([account_id, group_id, message]):
         flash('账号、目标 ID 和消息内容为必填项', 'danger')
@@ -40,6 +42,8 @@ def add():
         topic_id=topic_id,
         message=message,
         task_type=task_type,
+        random_delay_min=int(random_delay_min) if random_delay_min.isdigit() else 0,
+        random_delay_max=int(random_delay_max) if random_delay_max.isdigit() else 0,
     )
 
     if task_type == 'interval':
@@ -55,6 +59,10 @@ def add():
 
     db.session.add(task)
     db.session.commit()
+
+    # 自动同步目标到目标列表
+    from web.routes.targets import upsert_target
+    upsert_target(group_id, group_name)
 
     # 通知 Telegram 管理器重新加载任务
     manager = current_app.telegram_manager

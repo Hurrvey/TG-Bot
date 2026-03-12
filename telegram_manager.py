@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timezone as _tz
 from typing import Dict, Optional
 
 from telethon import TelegramClient, events
@@ -220,12 +220,13 @@ class TelegramManager:
     # ------------------------------------------------------------------
 
     async def _reload_scheduled_tasks(self):
-        """从数据库重新加载所有定时发送任务"""
+        """从数据库重新加载所有定时发送任务，支持断点续时"""
         try:
             with self.app.app_context():
-                from models import ScheduledTask
+                from models import db, ScheduledTask
                 tasks = ScheduledTask.query.filter_by(is_active=True).all()
                 task_ids = set()
+                needs_commit = False
 
                 for task in tasks:
                     job_id = f'task_{task.id}'
@@ -234,24 +235,47 @@ class TelegramManager:
                     if task.account_id not in self.clients:
                         continue
 
-                    # 已存在则跳过，避免重复注册
-                    if self.scheduler.get_job(job_id):
+                    existing_job = self.scheduler.get_job(job_id)
+                    if existing_job:
+                        # 将 APScheduler 当前的下次运行时间同步回数据库（每分钟触发一次）
+                        if existing_job.next_run_time:
+                            nrt = existing_job.next_run_time
+                            if nrt.tzinfo is not None:
+                                nrt = nrt.astimezone(_tz.utc).replace(tzinfo=None)
+                            task.next_run_at = nrt
+                            needs_commit = True
                         continue
 
-                    args = [task.account_id, task.group_id, task.message, task.topic_id]
+                    # ---- 任务不存在（首次启动或重启后重建） ----
+                    now = datetime.utcnow()
+                    args = [task.account_id, task.group_id, task.message, task.topic_id,
+                            task.random_delay_min or 0, task.random_delay_max or 0]
+
                     if task.task_type == 'interval' and task.interval_minutes:
-                        self.scheduler.add_job(
-                            self._send_scheduled_message,
-                            'interval',
+                        job_kwargs = dict(
                             minutes=task.interval_minutes,
                             id=job_id,
                             args=args,
                             replace_existing=True,
                         )
-                        logger.info(
-                            f'已注册间隔任务 task_{task.id}，'
-                            f'每 {task.interval_minutes} 分钟发送一次'
+                        # 断点续时：若上次记录的下次运行时间还在未来，直接用它作为起始时间
+                        if task.next_run_at and task.next_run_at > now:
+                            job_kwargs['start_date'] = task.next_run_at
+                            logger.info(
+                                f'断点恢复间隔任务 task_{task.id}，'
+                                f'将于 {task.next_run_at} 继续执行'
+                            )
+                        else:
+                            logger.info(
+                                f'已注册间隔任务 task_{task.id}，'
+                                f'每 {task.interval_minutes} 分钟发送一次'
+                            )
+                        self.scheduler.add_job(
+                            self._send_scheduled_message,
+                            'interval',
+                            **job_kwargs,
                         )
+
                     elif task.task_type == 'cron' and task.cron_expression:
                         parts = task.cron_expression.strip().split()
                         if len(parts) == 5:
@@ -272,6 +296,9 @@ class TelegramManager:
                                 f'已注册 cron 任务 task_{task.id}: {task.cron_expression}'
                             )
 
+                if needs_commit:
+                    db.session.commit()
+
                 # 移除数据库中已禁用或删除的任务
                 for job in self.scheduler.get_jobs():
                     if job.id.startswith('task_') and job.id not in task_ids:
@@ -287,9 +314,16 @@ class TelegramManager:
             self.scheduler.remove_job(job_id)
 
     async def _send_scheduled_message(
-        self, account_id: int, group_id: str, message: str, topic_id: int = None
+        self, account_id: int, group_id: str, message: str, topic_id: int = None,
+        random_delay_min: int = 0, random_delay_max: int = 0,
+        task_id: int = None, interval_minutes: int = 0
     ):
-        """执行定时发送"""
+        """执行定时发送，可附加随机延迟，并记录 last_run_at 用于断点续时"""
+        import random
+        if random_delay_min > 0 and random_delay_max >= random_delay_min:
+            delay = random.randint(random_delay_min, random_delay_max)
+            logger.info(f'定时任务随机延迟 {delay} 秒后发送至群 {group_id}')
+            await asyncio.sleep(delay)
         client = self.clients.get(account_id)
         if client is None:
             logger.warning(f'定时任务：账号 {account_id} 未连接，跳过')
@@ -301,7 +335,13 @@ class TelegramManager:
             await client.send_message(int(group_id), message, **send_kwargs)
             logger.info(f'定时消息已发送至群 {group_id}')
             with self.app.app_context():
-                from models import db, MessageLog
+                from models import db, MessageLog, ScheduledTask
+                # 记录本次实际执行时间，供下次重启断点续时使用
+                if task_id:
+                    task = ScheduledTask.query.get(task_id)
+                    if task:
+                        task.last_run_at = datetime.utcnow()
+                        db.session.commit()
                 log = MessageLog(
                     account_id=account_id,
                     group_id=group_id,
@@ -314,20 +354,33 @@ class TelegramManager:
             logger.error(f'定时消息发送失败: {e}')
 
     async def _check_pending_replies(self):
-        """轮询检查到期的待发回复（作为 APScheduler date 触发的补充）"""
+        """轮询检查到期的待发回复，保证同一目标按时序发送，失败自动重试"""
         try:
             with self.app.app_context():
                 from models import db, PendingReply, MessageLog
                 now = datetime.utcnow()
+                # 按计划时间升序，确保同目标多条消息按正确顺序发出
                 due = PendingReply.query.filter(
                     PendingReply.scheduled_at <= now,
                     PendingReply.is_sent == False,
-                ).all()
+                ).order_by(PendingReply.scheduled_at.asc()).all()
+
+                # 记录本次批次内各目标的最后实际发送时刻，用于控制发送间隔
+                last_sent_to = {}   # key: (account_id, group_id)  value: datetime
 
                 for reply in due:
                     client = self.clients.get(reply.account_id)
                     if client is None:
                         continue
+
+                    # ── 同目标间隔保障 ──────────────────────────────────────
+                    target_key = (reply.account_id, reply.group_id)
+                    if target_key in last_sent_to:
+                        elapsed = (datetime.utcnow() - last_sent_to[target_key]).total_seconds()
+                        if elapsed < 10:
+                            await asyncio.sleep(10 - elapsed)
+                    # ───────────────────────────────────────────────────────
+
                     try:
                         send_kwargs = {}
                         if reply.topic_id:
@@ -335,6 +388,7 @@ class TelegramManager:
                         await client.send_message(int(reply.group_id), reply.message, **send_kwargs)
                         reply.is_sent = True
                         reply.sent_at = datetime.utcnow()
+                        last_sent_to[target_key] = reply.sent_at
 
                         log = MessageLog(
                             account_id=reply.account_id,
@@ -346,7 +400,17 @@ class TelegramManager:
                         db.session.commit()
                         logger.info(f'待发回复已发送至群 {reply.group_id}')
                     except Exception as e:
-                        logger.error(f'发送待发回复失败: {e}')
+                        # 发送失败：将该消息重新推迟 10 秒入队，等待下次重试
+                        logger.error(f'发送待发回复失败: {e}，已重新入队 10 秒后重试')
+                        reply.scheduled_at = datetime.utcnow() + timedelta(seconds=10)
+                        err_log = MessageLog(
+                            account_id=reply.account_id,
+                            group_id=reply.group_id,
+                            log_type='error',
+                            content=f'发送失败，已重新入队 10 秒后重试: {e}',
+                        )
+                        db.session.add(err_log)
+                        db.session.commit()
         except Exception as e:
             logger.error(f'检查待发回复时出错: {e}')
 

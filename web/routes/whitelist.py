@@ -48,6 +48,11 @@ def add():
     )
     db.session.add(entry)
     db.session.commit()
+
+    # 自动同步到目标列表
+    from web.routes.targets import upsert_target
+    upsert_target(entity_id, entity_name, entity_type, note)
+
     flash(f'已将 {entity_name or entity_id} 加入白名单', 'success')
     return redirect(url_for('whitelist.index'))
 
