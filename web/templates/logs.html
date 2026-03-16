@@ -83,15 +83,30 @@
   <!-- 日志列表 -->
   <div class="col-12">
     <div class="card">
-      <div class="card-header bg-white fw-semibold">
-        <i class="bi bi-journal-text me-1"></i>操作记录
-        <span class="badge bg-secondary ms-1">共 {{ logs.total }} 条</span>
+      <div class="card-header bg-white fw-semibold d-flex align-items-center justify-content-between">
+        <span>
+          <i class="bi bi-journal-text me-1"></i>操作记录
+          <span class="badge bg-secondary ms-1">共 {{ logs.total }} 条</span>
+        </span>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-outline-danger d-none" id="btn-delete-selected" onclick="deleteSelected()">
+            <i class="bi bi-trash me-1"></i>删除选中 (<span id="selected-count">0</span>)
+          </button>
+          {% if logs.items %}
+          <button class="btn btn-sm btn-outline-danger" onclick="clearAll()">
+            <i class="bi bi-trash3 me-1"></i>清空所有日志
+          </button>
+          {% endif %}
+        </div>
       </div>
       <div class="card-body p-0">
         {% if logs.items %}
         <table class="table table-hover align-middle mb-0">
           <thead class="table-light">
             <tr>
+              <th style="width:40px">
+                <input type="checkbox" id="select-all" onchange="toggleSelectAll(this)">
+              </th>
               <th>时间 (UTC)</th>
               <th>类型</th>
               <th>群组</th>
@@ -101,6 +116,9 @@
           <tbody>
             {% for log in logs.items %}
             <tr>
+              <td>
+                <input type="checkbox" class="log-check" value="{{ log.id }}" onchange="updateSelectionUI()">
+              </td>
               <td class="text-muted small text-nowrap">
                 {{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') }}
               </td>
@@ -161,4 +179,72 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleSelectAll(el) {
+  document.querySelectorAll('.log-check').forEach(cb => { cb.checked = el.checked; });
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  const checked = document.querySelectorAll('.log-check:checked');
+  const btn = document.getElementById('btn-delete-selected');
+  const countEl = document.getElementById('selected-count');
+  if (checked.length > 0) {
+    btn.classList.remove('d-none');
+    countEl.textContent = checked.length;
+  } else {
+    btn.classList.add('d-none');
+  }
+  const all = document.querySelectorAll('.log-check');
+  const selectAllEl = document.getElementById('select-all');
+  if (selectAllEl) {
+    selectAllEl.checked = all.length > 0 && checked.length === all.length;
+    selectAllEl.indeterminate = checked.length > 0 && checked.length < all.length;
+  }
+}
+
+async function deleteSelected() {
+  const checked = document.querySelectorAll('.log-check:checked');
+  if (checked.length === 0) return;
+  if (!confirm(`确定要删除选中的 ${checked.length} 条日志吗？`)) return;
+
+  const ids = Array.from(checked).map(cb => parseInt(cb.value));
+  try {
+    const res = await fetch('/logs/api/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    const result = await res.json();
+    if (result.error) {
+      alert('删除失败: ' + result.error);
+    } else {
+      location.reload();
+    }
+  } catch (e) {
+    alert('删除请求失败: ' + e);
+  }
+}
+
+async function clearAll() {
+  if (!confirm('确定要清空所有日志吗？此操作不可恢复。')) return;
+  try {
+    const res = await fetch('/logs/api/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const result = await res.json();
+    if (result.error) {
+      alert('清空失败: ' + result.error);
+    } else {
+      location.reload();
+    }
+  } catch (e) {
+    alert('清空请求失败: ' + e);
+  }
+}
+</script>
 {% endblock %}

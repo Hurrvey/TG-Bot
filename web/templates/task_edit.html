@@ -1,32 +1,26 @@
 {% extends 'base.html' %}
-{% block title %}定时任务 - TG Bot{% endblock %}
-{% block page_title %}定时发送任务{% endblock %}
+{% block title %}编辑定时任务 - TG Bot{% endblock %}
+{% block page_title %}编辑定时任务{% endblock %}
 
 {% block content %}
-<div class="row g-4">
-  <!-- 添加任务 -->
-  <div class="col-lg-4">
+<div class="row justify-content-center">
+  <div class="col-md-7">
     <div class="card">
       <div class="card-header bg-white fw-semibold">
-        <i class="bi bi-plus-circle me-1"></i>添加定时任务
+        <i class="bi bi-pencil me-1"></i>编辑任务（ID: {{ task.id }}）
       </div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('tasks.add') }}" id="task-form">
+        <form method="post">
           <div class="mb-3">
             <label class="form-label">账号 <span class="text-danger">*</span></label>
             <select name="account_id" id="task-account" class="form-select" required
-                    onchange="resolveTarget(null)">
+                    onchange="resolveTarget({{ task.topic_id or 'null' }})">
               <option value="">请选择账号</option>
               {% for acc in accounts %}
-              <option value="{{ acc.id }}">{{ acc.name }} ({{ acc.phone }})</option>
+              <option value="{{ acc.id }}" {{ 'selected' if task.account_id == acc.id }}>
+                {{ acc.name }} ({{ acc.phone }})
+              </option>
               {% endfor %}
-            </select>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">从已保存目标中选择</label>
-            <select id="task-target-select" class="form-select form-select-sm"
-                    onchange="fillTargetFromList('task-target-select','task-target','task-group-name')">
-              <option value="">— 手动输入 / 从列表选择 —</option>
             </select>
           </div>
           <div class="mb-3">
@@ -34,6 +28,7 @@
               <span id="task-target-badge" class="ms-1"></span>
             </label>
             <input type="text" name="group_id" id="task-target" class="form-control"
+                   value="{{ task.group_id or '' }}"
                    placeholder="用户/机器人/群组/频道的数字 ID" required
                    oninput="scheduleDetect()">
             <div class="form-text" id="task-target-hint">
@@ -42,9 +37,11 @@
           </div>
           <div class="mb-3">
             <label class="form-label">目标备注</label>
-            <input type="text" name="group_name" id="task-group-name" class="form-control" placeholder="可选，便于识别">
+            <input type="text" name="group_name" id="task-group-name" class="form-control"
+                   value="{{ task.group_name or '' }}"
+                   placeholder="可选，便于识别">
           </div>
-          <div class="mb-3" id="task-topic-section" style="display:none">
+          <div class="mb-3" id="task-topic-section" style="display:{{ 'none' if not task.group_id else '' }}">
             <label class="form-label">
               <i class="bi bi-chat-square-text me-1"></i>发送到话题
             </label>
@@ -56,33 +53,35 @@
                 <option value="">（不指定 / 默认话题）</option>
               </select>
             </div>
-            <div id="task-topic-input-wrap" class="d-none">
+            <div id="task-topic-input-wrap">
               <input type="number" name="topic_id" id="task-topic-input" class="form-control"
+                     value="{{ task.topic_id or '' }}"
                      placeholder="手动输入话题 ID">
             </div>
-            <div class="form-text" id="task-topic-help"></div>
+            <div class="form-text" id="task-topic-help">
+              如果是 Forum 频道将自动加载话题列表。
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label">发送消息内容 <span class="text-danger">*</span></label>
-            <textarea name="message" class="form-control" rows="3"
-                      placeholder="定时发送的消息" required></textarea>
+            <textarea name="message" class="form-control" rows="3" required>{{ task.message }}</textarea>
           </div>
           <div class="mb-3">
             <label class="form-label">任务类型</label>
             <div class="btn-group w-100" role="group">
               <input type="radio" class="btn-check" name="task_type" id="type_interval"
-                     value="interval" checked onchange="switchType()">
+                     value="interval" {{ 'checked' if task.task_type == 'interval' }} onchange="switchType()">
               <label class="btn btn-outline-primary" for="type_interval">按间隔</label>
               <input type="radio" class="btn-check" name="task_type" id="type_cron"
-                     value="cron" onchange="switchType()">
+                     value="cron" {{ 'checked' if task.task_type == 'cron' }} onchange="switchType()">
               <label class="btn btn-outline-primary" for="type_cron">Cron 表达式</label>
             </div>
           </div>
-          <div id="interval-field" class="mb-3">
+          <div id="interval-field" class="mb-3" style="display:{{ 'none' if task.task_type == 'cron' else 'block' }}">
             <label class="form-label">间隔分钟数 <span class="text-danger">*</span></label>
             <div class="input-group">
               <input type="number" name="interval_minutes" class="form-control"
-                     placeholder="60" min="1">
+                     value="{{ task.interval_minutes or '' }}" min="1">
               <span class="input-group-text">分钟</span>
             </div>
           </div>
@@ -91,128 +90,29 @@
             <div class="input-group">
               <span class="input-group-text">最小</span>
               <input type="number" name="random_delay_min" class="form-control"
-                     placeholder="0" min="0" value="0">
+                     value="{{ task.random_delay_min or 0 }}" min="0">
               <span class="input-group-text">最大</span>
               <input type="number" name="random_delay_max" class="form-control"
-                     placeholder="0" min="0" value="0">
+                     value="{{ task.random_delay_max or 0 }}" min="0">
               <span class="input-group-text">秒</span>
             </div>
             <div class="form-text">填写后每次触发时额外随机等待指定范围内的秒数，两项均填 0 则不启用</div>
           </div>
-          <div id="cron-field" class="mb-3" style="display:none">
+          <div id="cron-field" class="mb-3" style="display:{{ 'block' if task.task_type == 'cron' else 'none' }}">
             <label class="form-label">Cron 表达式 <span class="text-danger">*</span></label>
             <input type="text" name="cron_expression" class="form-control"
-                   placeholder="0 9 * * *">
+                   value="{{ task.cron_expression or '' }}">
             <div class="form-text">
               格式：分 时 日 月 周。如 <code>0 9 * * *</code> 表示每天 09:00（UTC）。
             </div>
           </div>
-          <button type="submit" class="btn btn-primary w-100">
-            <i class="bi bi-clock-history me-1"></i>添加任务
-          </button>
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">
+              <i class="bi bi-check-circle me-1"></i>保存
+            </button>
+            <a href="{{ url_for('tasks.index') }}" class="btn btn-outline-secondary">取消</a>
+          </div>
         </form>
-      </div>
-    </div>
-  </div>
-
-  <!-- 任务列表 -->
-  <div class="col-lg-8">
-    <div class="card">
-      <div class="card-header bg-white fw-semibold">
-        <i class="bi bi-list-task me-1"></i>任务列表
-        <span class="badge bg-secondary ms-1">{{ tasks|length }}</span>
-      </div>
-      <div class="card-body p-0">
-        {% if tasks %}
-        <table class="table table-hover align-middle mb-0">
-          <thead class="table-light">
-            <tr>
-              <th>账号</th>
-              <th>目标</th>
-              <th>话题</th>
-              <th>消息</th>
-              <th>执行规则</th>
-              <th>状态</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for task in tasks %}
-            <tr class="{{ '' if task.is_active else 'text-muted' }}">
-              <td class="small">
-                {% if task.account %}{{ task.account.name }}{% else %}—{% endif %}
-              </td>
-              <td class="small">
-                <div>{{ task.group_name or '—' }}</div>
-                <div class="text-muted" style="font-size:.75rem">{{ task.group_id }}</div>
-              </td>
-              <td class="small">
-                {% if task.topic_id %}
-                  <span class="badge bg-primary"><i class="bi bi-chat-square-text me-1"></i>#{{ task.topic_id }}</span>
-                {% else %}
-                  <span class="text-muted">默认</span>
-                {% endif %}
-              </td>
-              <td class="small text-truncate" style="max-width:130px" title="{{ task.message }}">
-                {{ task.message }}
-              </td>
-              <td class="small">
-                {% if task.task_type == 'interval' %}
-                  <span class="badge bg-info text-dark">
-                    每 {{ task.interval_minutes }} 分钟
-                  </span>
-                  {% if task.random_delay_min and task.random_delay_max and task.random_delay_max > 0 %}
-                  <br><span class="text-muted" style="font-size:.75rem">
-                    +随机 {{ task.random_delay_min }}~{{ task.random_delay_max }}s
-                  </span>
-                  {% endif %}
-                {% else %}
-                  <code class="small">{{ task.cron_expression }}</code>
-                  {% if task.random_delay_min and task.random_delay_max and task.random_delay_max > 0 %}
-                  <br><span class="text-muted" style="font-size:.75rem">
-                    +随机 {{ task.random_delay_min }}~{{ task.random_delay_max }}s
-                  </span>
-                  {% endif %}
-                {% endif %}
-              </td>
-              <td>
-                {% if task.is_active %}
-                  <span class="badge bg-success">运行中</span>
-                {% else %}
-                  <span class="badge bg-secondary">已停止</span>
-                {% endif %}
-              </td>
-              <td>
-                <div class="btn-group btn-group-sm">
-                  <a href="{{ url_for('tasks.edit', task_id=task.id) }}"
-                     class="btn btn-outline-secondary" title="编辑">
-                    <i class="bi bi-pencil"></i>
-                  </a>
-                  <form method="post" action="{{ url_for('tasks.toggle', task_id=task.id) }}" class="d-inline">
-                    <button class="btn btn-outline-{{ 'warning' if task.is_active else 'success' }}"
-                            title="{{ '停止' if task.is_active else '启动' }}">
-                      <i class="bi bi-{{ 'pause' if task.is_active else 'play' }}"></i>
-                    </button>
-                  </form>
-                  <form method="post" action="{{ url_for('tasks.delete', task_id=task.id) }}"
-                        class="d-inline"
-                        onsubmit="return confirm('确定删除此定时任务吗？')">
-                    <button class="btn btn-outline-danger" title="删除">
-                      <i class="bi bi-trash"></i>
-                    </button>
-                  </form>
-                </div>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-        {% else %}
-        <div class="text-center text-muted py-5">
-          <i class="bi bi-clock fs-2 d-block mb-2"></i>
-          还没有定时任务，请在左侧添加
-        </div>
-        {% endif %}
       </div>
     </div>
   </div>
@@ -227,7 +127,8 @@ function switchType() {
   document.getElementById('cron-field').style.display = isCron ? 'block' : 'none';
 }
 
-// ── 目标实体识别 + 话题检测 ──
+// -- 目标实体识别 + 话题检测 --
+const FIRST_ACCOUNT_ID = {{ accounts[0].id if accounts else 'null' }};
 const KIND_BADGE = {
   user:       ['bg-info text-dark',    'bi-person',         '用户'],
   bot:        ['bg-secondary',         'bi-robot',          '机器人'],
@@ -244,7 +145,7 @@ function scheduleDetect() {
 }
 function getAccountId() {
   const sel = document.getElementById('task-account');
-  return sel ? sel.value : '';
+  return (sel && sel.value) ? sel.value : FIRST_ACCOUNT_ID;
 }
 
 async function resolveTarget(preselect) {
@@ -341,41 +242,11 @@ function _showSelect(topics, preselect) {
   if (helpEl) helpEl.textContent = '已检测到 Forum 话题，请从列表中选择。';
 }
 
-// ── 目标列表快速填充 ──
-function fillTargetFromList(selectId, idFieldId, nameFieldId) {
-  const sel = document.getElementById(selectId);
-  const opt = sel.options[sel.selectedIndex];
-  if (!opt || !opt.value) return;
-  document.getElementById(idFieldId).value = opt.value;
-  const nameField = document.getElementById(nameFieldId);
-  if (nameField && opt.dataset.name) nameField.value = opt.dataset.name;
-  // 触发识别
-  scheduleDetect();
-  // 重置下拉（避免误导）
-  sel.selectedIndex = 0;
-}
-
-async function loadTargetList() {
-  try {
-    const resp = await fetch('/targets/api');
-    const data = await resp.json();
-    const selIds = ['task-target-select'];
-    selIds.forEach(sid => {
-      const sel = document.getElementById(sid);
-      if (!sel) return;
-      // 清除旧选项（保留第一个占位）
-      while (sel.options.length > 1) sel.remove(1);
-      data.forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.entity_id;
-        opt.dataset.name = t.name || '';
-        const typeLabel = { user:'用户', bot:'机器人', group:'群组', supergroup:'超级群', channel:'频道', unknown:'未知' }[t.entity_type] || '';
-        opt.textContent = `${t.name || t.entity_id}  [${typeLabel}]  ${t.entity_id}`;
-        sel.appendChild(opt);
-      });
-    });
-  } catch(e) {}
-}
-document.addEventListener('DOMContentLoaded', loadTargetList);
+// 页面加载时，如果已有目标 ID，自动识别并预选当前话题
+document.addEventListener('DOMContentLoaded', () => {
+  if ((document.getElementById('task-target').value || '').trim()) {
+    resolveTarget({{ task.topic_id or 'null' }});
+  }
+});
 </script>
 {% endblock %}

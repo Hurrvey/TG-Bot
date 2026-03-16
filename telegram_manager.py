@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import threading
-from datetime import datetime, timezone as _tz
+from datetime import datetime, timedelta, timezone as _tz
 from typing import Dict, Optional
 
 from telethon import TelegramClient, events

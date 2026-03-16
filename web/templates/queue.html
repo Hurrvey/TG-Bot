@@ -3,11 +3,17 @@
 {% block page_title %}发送队列{% endblock %}
 
 {% block content %}
-<div class="row g-3 mb-3">
+<div class="row g-3 mb-3 align-items-center">
   <div class="col-auto">
     <span class="text-muted small">每 5 秒自动刷新 &nbsp;·&nbsp; 上次更新: <span id="last-update">—</span></span>
   </div>
-  <div class="col-auto ms-auto">
+  <div class="col-auto ms-auto d-flex gap-2">
+    <button class="btn btn-sm btn-outline-danger d-none" id="btn-delete-selected" onclick="deleteSelected()">
+      <i class="bi bi-trash me-1"></i>删除选中 (<span id="selected-count">0</span>)
+    </button>
+    <button class="btn btn-sm btn-outline-danger" id="btn-clear-all" onclick="clearAll()">
+      <i class="bi bi-trash3 me-1"></i>清空队列
+    </button>
     <button class="btn btn-sm btn-outline-primary" onclick="loadQueue()">
       <i class="bi bi-arrow-clockwise me-1"></i>立即刷新
     </button>
@@ -25,6 +31,7 @@
       <table class="table table-hover align-middle mb-0" id="queue-table">
         <thead class="table-light">
           <tr>
+            <th style="width:40px"><input type="checkbox" id="select-all" onchange="toggleSelectAll(this)"></th>
             <th style="width:110px">类型</th>
             <th>账号</th>
             <th>目标</th>
@@ -36,7 +43,7 @@
         </thead>
         <tbody id="queue-body">
           <tr id="loading-row">
-            <td colspan="7" class="text-center text-muted py-4">
+            <td colspan="8" class="text-center text-muted py-4">
               <div class="spinner-border spinner-border-sm me-2"></div>加载中…
             </td>
           </tr>
@@ -106,6 +113,11 @@ function buildRow(item) {
   const sec = item.remaining_seconds;
   const maxSec = maxSeconds[key] || sec || 1;
 
+  const canDelete = item.type === 'pending_reply';
+  const checkbox = canDelete
+    ? `<input type="checkbox" class="row-check" data-type="${item.type}" data-id="${item.id}" onchange="updateSelectionUI()">`
+    : '';
+
   const typeBadge = item.type === 'pending_reply'
     ? '<span class="badge type-badge-pending">关键词回复</span>'
     : '<span class="badge type-badge-task">定时任务</span>';
@@ -113,6 +125,9 @@ function buildRow(item) {
   const target = item.group_name
     ? `<span class="d-block">${item.group_name}</span><small class="text-muted">${item.group_id}</small>`
     : `<span>${item.group_id}</span>`;
+  const topicBadge = item.topic_id
+    ? `<br><span class="badge bg-primary"><i class="bi bi-chat-square-text me-1"></i>#${item.topic_id}</span>`
+    : '';
 
   const remark = item.type === 'pending_reply'
     ? `<small class="text-muted text-truncate d-block" style="max-width:150px" title="${item.triggered_by}">${item.triggered_by || '—'}</small>`
@@ -123,9 +138,10 @@ function buildRow(item) {
   const color = barColor(sec);
 
   return `<tr>
+    <td>${checkbox}</td>
     <td>${typeBadge}</td>
     <td class="small">${item.account}</td>
-    <td class="small">${target}</td>
+    <td class="small">${target}${topicBadge}</td>
     <td class="small text-truncate" style="max-width:200px" title="${item.message}">${item.message}</td>
     <td class="small text-nowrap">${item.scheduled_at}</td>
     <td>
@@ -160,10 +176,13 @@ async function loadQueue() {
 
     const tbody = document.getElementById('queue-body');
     if (data.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-5"><i class="bi bi-check2-circle fs-3 d-block mb-2"></i>当前没有等待发送的任务</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-5"><i class="bi bi-check2-circle fs-3 d-block mb-2"></i>当前没有等待发送的任务</td></tr>';
+      document.getElementById('btn-clear-all').classList.add('d-none');
       return;
     }
+    document.getElementById('btn-clear-all').classList.remove('d-none');
     tbody.innerHTML = data.map(buildRow).join('');
+    updateSelectionUI();
   } catch (e) {
     console.error('加载队列失败', e);
   }
@@ -189,6 +208,79 @@ function tickCountdown() {
       bar.style.backgroundColor = barColor(sec);
     }
   });
+}
+
+function toggleSelectAll(el) {
+  document.querySelectorAll('.row-check').forEach(cb => { cb.checked = el.checked; });
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  const checked = document.querySelectorAll('.row-check:checked');
+  const btn = document.getElementById('btn-delete-selected');
+  const countEl = document.getElementById('selected-count');
+  if (checked.length > 0) {
+    btn.classList.remove('d-none');
+    countEl.textContent = checked.length;
+  } else {
+    btn.classList.add('d-none');
+  }
+  // 同步全选框状态
+  const all = document.querySelectorAll('.row-check');
+  const selectAllEl = document.getElementById('select-all');
+  if (selectAllEl) {
+    selectAllEl.checked = all.length > 0 && checked.length === all.length;
+    selectAllEl.indeterminate = checked.length > 0 && checked.length < all.length;
+  }
+}
+
+async function deleteSelected() {
+  const checked = document.querySelectorAll('.row-check:checked');
+  if (checked.length === 0) return;
+  if (!confirm(`确定要删除选中的 ${checked.length} 条待发送任务吗？`)) return;
+
+  const items = [];
+  checked.forEach(cb => {
+    items.push({ type: cb.dataset.type, id: parseInt(cb.dataset.id) });
+  });
+
+  try {
+    const res = await fetch('/queue/api/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    });
+    const result = await res.json();
+    if (result.error) {
+      alert('删除失败: ' + result.error);
+    }
+  } catch (e) {
+    alert('删除请求失败: ' + e);
+  }
+  loadQueue();
+}
+
+async function clearAll() {
+  const pendingCount = queueData.filter(d => d.type === 'pending_reply').length;
+  if (pendingCount === 0) {
+    alert('没有可清空的关键词回复任务');
+    return;
+  }
+  if (!confirm(`确定要清空全部 ${pendingCount} 条待发送的关键词回复吗？此操作不可恢复。`)) return;
+
+  try {
+    const res = await fetch('/queue/api/clear', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const result = await res.json();
+    if (result.error) {
+      alert('清空失败: ' + result.error);
+    }
+  } catch (e) {
+    alert('清空请求失败: ' + e);
+  }
+  loadQueue();
 }
 
 // 首次加载

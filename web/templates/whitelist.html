@@ -21,7 +21,8 @@
         <form method="post" action="{{ url_for('whitelist.add') }}">
           <div class="mb-3">
             <label class="form-label">适用账号</label>
-            <select name="account_id" class="form-select">
+            <select name="account_id" id="wl-account" class="form-select"
+                    onchange="scheduleDetect()">
               <option value="">全部账号</option>
               {% for acc in accounts %}
               <option value="{{ acc.id }}">{{ acc.name }} ({{ acc.phone }})</option>
@@ -30,10 +31,13 @@
             <div class="form-text">留空则所有账号共用此白名单</div>
           </div>
           <div class="mb-3">
-            <label class="form-label">实体 ID <span class="text-danger">*</span></label>
-            <input type="text" name="entity_id" class="form-control"
-                   placeholder="如：-1002517347269" required>
-            <div class="form-text">
+            <label class="form-label">实体 ID <span class="text-danger">*</span>
+              <span id="wl-badge" class="ms-1"></span>
+            </label>
+            <input type="text" name="entity_id" id="wl-entity-id" class="form-control"
+                   placeholder="如：-100xxxxxxxxx或xxxxxxxx，注意群组 ID 以 -100 开头" required
+                   oninput="scheduleDetect()">
+            <div class="form-text" id="wl-hint">
               用户/机器人为正数；频道/超群为负数（以 -100 开头）。<br>
               可在<strong>账号管理 → 查看群组</strong>获取频道 ID，
               或从已抓取的消息文件中复制 ID。
@@ -41,16 +45,38 @@
           </div>
           <div class="mb-3">
             <label class="form-label">备注名称</label>
-            <input type="text" name="entity_name" class="form-control"
-                   placeholder="备注名称">
+            <input type="text" name="entity_name" id="wl-name" class="form-control"
+                   placeholder="备注名称（自动填入或手动输入）">
           </div>
+          <!-- 类型：识别成功后自动设置，未识别时手动选择 -->
           <div class="mb-3">
             <label class="form-label">类型</label>
-            <select name="entity_type" class="form-select">
-              <option value="user">用户 (user)</option>
-              <option value="bot">机器人 (bot)</option>
-              <option value="channel">频道/超群 (channel)</option>
-            </select>
+            <div id="wl-type-detected" class="d-none mb-1"></div>
+            <div id="wl-type-manual">
+              <select name="entity_type" id="wl-type-select" class="form-select">
+                <option value="user">用户 (user)</option>
+                <option value="bot">机器人 (bot)</option>
+                <option value="channel">频道/超群 (channel)</option>
+              </select>
+            </div>
+            <input type="hidden" name="entity_type" id="wl-type-hidden" disabled>
+          </div>
+          <!-- 话题区（仅 Forum 群组弹出，展示用） -->
+          <div id="wl-topic-section" class="mb-3" style="display:none">
+            <label class="form-label">
+              <i class="bi bi-chat-square-text me-1"></i>话题列表
+            </label>
+            <div id="wl-topic-loading" class="d-none text-muted small py-1">
+              <span class="spinner-border spinner-border-sm me-1"></span>正在获取话题列表…
+            </div>
+            <div id="wl-topic-select-wrap" class="d-none">
+              <select id="wl-topic-select" class="form-select" disabled>
+                <option value="">（仅供参考，白名单不需选择话题）</option>
+              </select>
+              <div class="form-text text-info">此实体为 Forum 群组，以上为其话题列表（仅供参考）</div>
+            </div>
+            <div id="wl-topic-input-wrap" class="d-none"></div>
+            <div class="form-text" id="wl-topic-help"></div>
           </div>
           <div class="mb-3">
             <label class="form-label">备注说明</label>
@@ -109,6 +135,10 @@
                   <span class="badge bg-info text-dark"><i class="bi bi-robot"></i> 机器人</span>
                 {% elif e.entity_type == 'channel' %}
                   <span class="badge" style="background:#6610f2"><i class="bi bi-broadcast"></i> 频道</span>
+                {% elif e.entity_type == 'group' %}
+                  <span class="badge bg-success"><i class="bi bi-people"></i> 群组</span>
+                {% elif e.entity_type == 'supergroup' %}
+                  <span class="badge bg-success"><i class="bi bi-people-fill"></i> 超级群</span>
                 {% else %}
                   <span class="badge bg-secondary"><i class="bi bi-person"></i> 用户</span>
                 {% endif %}
@@ -161,4 +191,159 @@
   </div>
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const KIND_BADGE = {
+  user:       ['bg-info text-dark',    'bi-person',         '用户'],
+  bot:        ['bg-secondary',         'bi-robot',          '机器人'],
+  group:      ['bg-success',           'bi-people',         '群组'],
+  supergroup: ['bg-success',           'bi-people-fill',    '超级群'],
+  channel:    ['bg-primary',           'bi-megaphone-fill', '频道'],
+  unknown:    ['bg-warning text-dark', 'bi-question',       '未知'],
+};
+
+let _detTimer = null;
+function scheduleDetect() {
+  clearTimeout(_detTimer);
+  _detTimer = setTimeout(resolveTarget, 700);
+}
+
+function getAccountId() {
+  const sel = document.getElementById('wl-account');
+  return (sel && sel.value) ? sel.value : null;
+}
+
+async function resolveTarget() {
+  const targetId  = (document.getElementById('wl-entity-id').value || '').trim();
+  const accountId = getAccountId();
+  const badge     = document.getElementById('wl-badge');
+  const hint      = document.getElementById('wl-hint');
+  const section   = document.getElementById('wl-topic-section');
+
+  if (!targetId || !accountId) {
+    badge.innerHTML = '';
+    section.style.display = 'none';
+    _resetTopicUI();
+    _showManualType();
+    return;
+  }
+
+  badge.innerHTML = '<span class="badge bg-light text-muted"><span class="spinner-border spinner-border-sm me-1"></span>识别中…</span>';
+
+  try {
+    const resp = await fetch(`/accounts/${accountId}/resolve/${encodeURIComponent(targetId)}`);
+    const data = await resp.json();
+    if (data.error) {
+      badge.innerHTML = `<span class="badge bg-danger"><i class="bi bi-exclamation-triangle me-1"></i>无法识别</span>`;
+      hint.textContent = data.error;
+      section.style.display = 'none';
+      _resetTopicUI();
+      _showManualType();
+      return;
+    }
+
+    const [bgCls, icon, label] = KIND_BADGE[data.kind] || KIND_BADGE.unknown;
+    badge.innerHTML = `<span class="badge ${bgCls}"><i class="bi ${icon} me-1"></i>${label}：${data.name}</span>`;
+    hint.textContent = `已识别为「${label}」（ID: ${data.id}）`;
+
+    // 自动填入名称（如果还空）
+    const nameField = document.getElementById('wl-name');
+    if (nameField && !nameField.value) nameField.value = data.name;
+
+    // 自动设置类型
+    _setDetectedType(data.kind, label, bgCls, icon);
+
+    // 仅 Forum 群组才检测话题
+    if (data.is_forum) {
+      await _detectTopics(accountId, targetId);
+    } else {
+      section.style.display = 'none';
+      _resetTopicUI();
+    }
+  } catch(e) {
+    badge.innerHTML = '';
+    _showManualType();
+  }
+}
+
+function _setDetectedType(kind, label, bgCls, icon) {
+  const detected = document.getElementById('wl-type-detected');
+  const manual   = document.getElementById('wl-type-manual');
+  const hidden   = document.getElementById('wl-type-hidden');
+  const sel      = document.getElementById('wl-type-select');
+
+  detected.innerHTML = `<span class="badge ${bgCls}"><i class="bi ${icon} me-1"></i>${label}</span>
+    <a href="#" class="ms-2 small text-muted" onclick="event.preventDefault();_showManualType()">手动修改</a>`;
+  detected.classList.remove('d-none');
+  manual.classList.add('d-none');
+
+  hidden.value = kind;
+  hidden.disabled = false;
+  sel.disabled = true;
+  sel.name = '';
+  hidden.name = 'entity_type';
+}
+
+function _showManualType() {
+  const detected = document.getElementById('wl-type-detected');
+  const manual   = document.getElementById('wl-type-manual');
+  const hidden   = document.getElementById('wl-type-hidden');
+  const sel      = document.getElementById('wl-type-select');
+
+  detected.classList.add('d-none');
+  manual.classList.remove('d-none');
+  hidden.disabled = true;
+  hidden.name = '';
+  sel.disabled = false;
+  sel.name = 'entity_type';
+}
+
+async function _detectTopics(accountId, targetId) {
+  const section = document.getElementById('wl-topic-section');
+  section.style.display = '';
+  document.getElementById('wl-topic-loading').classList.remove('d-none');
+  document.getElementById('wl-topic-input-wrap').classList.add('d-none');
+  document.getElementById('wl-topic-select-wrap').classList.add('d-none');
+  try {
+    const resp = await fetch(`/accounts/${accountId}/dialogs/${encodeURIComponent(targetId)}/topics`);
+    const data = await resp.json();
+    if (data.is_forum && data.topics && data.topics.length) {
+      _showTopicList(data.topics);
+    } else {
+      _showTopicInfo();
+    }
+  } catch(e) {
+    _showTopicInfo();
+  }
+}
+
+function _resetTopicUI() {
+  document.getElementById('wl-topic-loading').classList.add('d-none');
+  document.getElementById('wl-topic-input-wrap').classList.add('d-none');
+  document.getElementById('wl-topic-select-wrap').classList.add('d-none');
+}
+
+function _showTopicInfo() {
+  document.getElementById('wl-topic-loading').classList.add('d-none');
+  document.getElementById('wl-topic-select-wrap').classList.add('d-none');
+  document.getElementById('wl-topic-help').textContent = '此实体为 Forum 群组，但未能获取话题列表。';
+}
+
+function _showTopicList(topics) {
+  document.getElementById('wl-topic-loading').classList.add('d-none');
+  document.getElementById('wl-topic-input-wrap').classList.add('d-none');
+  document.getElementById('wl-topic-select-wrap').classList.remove('d-none');
+  const sel = document.getElementById('wl-topic-select');
+  sel.innerHTML = '<option value="">（仅供参考，白名单不需选择话题）</option>';
+  topics.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t.id;
+    opt.textContent = `#${t.id}  ${t.title}`;
+    sel.appendChild(opt);
+  });
+  document.getElementById('wl-topic-help').textContent = '已检测到 Forum 话题列表（仅供参考）。';
+}
+</script>
 {% endblock %}
