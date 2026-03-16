@@ -211,3 +211,42 @@ class TargetEntity(db.Model):
             'note': self.note,
             'topic_id': self.topic_id,
         }
+
+
+class Settings(db.Model):
+    """全局系统设置（key-value 键值对）"""
+    __tablename__ = 'settings'
+
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(100), unique=True, nullable=False, index=True)
+    value = db.Column(db.Text, default='')
+    description = db.Column(db.String(200), default='')
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# 默认设置值
+_SETTINGS_DEFAULTS = {
+    'smart_dedup_enabled': ('false', '智能去重开关'),
+    'smart_dedup_threshold_minutes': ('60', '智能去重时间阈值（分钟）'),
+}
+
+
+def get_setting(key, default=None):
+    """读取设置值，优先数据库 → 内置默认 → 参数默认"""
+    row = Settings.query.filter_by(key=key).first()
+    if row:
+        return row.value
+    builtin = _SETTINGS_DEFAULTS.get(key)
+    return builtin[0] if builtin else (default or '')
+
+
+def set_setting(key, value):
+    """写入设置值（upsert）"""
+    row = Settings.query.filter_by(key=key).first()
+    if row:
+        row.value = value
+    else:
+        desc = _SETTINGS_DEFAULTS.get(key, ('', ''))[1]
+        row = Settings(key=key, value=value, description=desc)
+        db.session.add(row)
+    db.session.commit()

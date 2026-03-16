@@ -25,6 +25,7 @@ def create_app(telegram_manager=None):
     from web.routes.whitelist import whitelist_bp
     from web.routes.targets import targets_bp
     from web.routes.queue import queue_bp
+    from web.routes.settings import settings_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(accounts_bp, url_prefix='/accounts')
@@ -34,5 +35,6 @@ def create_app(telegram_manager=None):
     app.register_blueprint(whitelist_bp, url_prefix='/whitelist')
     app.register_blueprint(targets_bp, url_prefix='/targets')
     app.register_blueprint(queue_bp, url_prefix='/queue')
+    app.register_blueprint(settings_bp, url_prefix='/settings')
 
     return app

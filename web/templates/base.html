@@ -116,6 +116,12 @@
           <i class="bi bi-hourglass-split"></i> 发送队列
         </a>
       </li>
+      <li class="nav-item">
+        <a class="nav-link {% if request.blueprint == 'settings' %}active{% endif %}"
+           href="{{ url_for('settings.index') }}">
+          <i class="bi bi-gear"></i> 系统设置
+        </a>
+      </li>
     </ul>
   </nav>
 

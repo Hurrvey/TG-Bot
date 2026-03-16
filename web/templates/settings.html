@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}系统设置 - TG Bot{% endblock %}
+{% block page_title %}系统设置{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-6">
+    <form method="post" action="{{ url_for('settings.save') }}">
+      <div class="card mb-4">
+        <div class="card-header bg-white fw-semibold">
+          <i class="bi bi-layers me-1"></i>智能去重
+        </div>
+        <div class="card-body">
+          <div class="mb-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="smart_dedup_enabled"
+                     name="smart_dedup_enabled"
+                     {{ 'checked' if settings.smart_dedup_enabled == 'true' }}>
+              <label class="form-check-label" for="smart_dedup_enabled">
+                启用智能去重
+              </label>
+            </div>
+            <div class="form-text">
+              开启后，当多条待发回复具有相同的账号、目标群组和消息内容，
+              且计划发送时间差距在阈值范围内时，只保留剩余时间最少的一条，自动删除其余重复项。
+            </div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">时间阈值</label>
+            <div class="input-group" style="max-width:250px">
+              <input type="number" name="smart_dedup_threshold_minutes" class="form-control"
+                     value="{{ settings.smart_dedup_threshold_minutes }}"
+                     min="1" max="1440">
+              <span class="input-group-text">分钟</span>
+            </div>
+            <div class="form-text">
+              只有计划发送时间差距在此阈值内的重复消息才会被合并去重。默认 60 分钟。
+            </div>
+          </div>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">
+        <i class="bi bi-check-lg me-1"></i>保存设置
+      </button>
+    </form>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card">
+      <div class="card-header bg-white fw-semibold">
+        <i class="bi bi-info-circle me-1"></i>说明
+      </div>
+      <div class="card-body">
+        <h6>智能去重工作原理</h6>
+        <p class="small text-muted">
+          当关键词规则触发新的待发回复时，系统会检查是否已有相同账号、相同目标群组、
+          且消息内容完全一致的未发送回复。如果多条回复的计划发送时间差距在阈值范围内，
+          只保留计划最早的那条（剩余等待时间最短），其余自动删除。
+        </p>
+        <h6>与现有去重的区别</h6>
+        <p class="small text-muted mb-0">
+          现有逻辑按关键词规则去重（同一规则 + 同一目标只保留一条），
+          而智能去重按消息内容去重（不同规则产生的相同消息也会合并）。
+          两者互补，不冲突。
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

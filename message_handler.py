@@ -66,6 +66,52 @@ def _is_in_schedule(start_str: str, end_str: str) -> bool:
         return cur >= s or cur <= e
 
 
+def _smart_dedup(account_id, group_id, message, topic_id):
+    """
+    智能去重：对同一 (account, group, message, topic_id) 的未发送回复，
+    若多条计划时间差距在阈值内，只保留最早的一条（剩余时间最短），删除其余。
+    """
+    from models import db, PendingReply, get_setting
+
+    if get_setting('smart_dedup_enabled', 'false') != 'true':
+        return
+
+    try:
+        threshold_minutes = int(get_setting('smart_dedup_threshold_minutes', '60'))
+    except (ValueError, TypeError):
+        threshold_minutes = 60
+
+    candidates = PendingReply.query.filter(
+        PendingReply.account_id == account_id,
+        PendingReply.group_id == group_id,
+        PendingReply.message == message,
+        PendingReply.topic_id == topic_id,
+        PendingReply.is_sent == False,
+    ).order_by(PendingReply.scheduled_at.asc()).all()
+
+    if len(candidates) <= 1:
+        return
+
+    threshold_delta = timedelta(minutes=threshold_minutes)
+    anchor = candidates[0]
+    to_delete = []
+
+    for c in candidates[1:]:
+        if (c.scheduled_at - anchor.scheduled_at) <= threshold_delta:
+            to_delete.append(c)
+        else:
+            anchor = c
+
+    if to_delete:
+        for entry in to_delete:
+            logger.info(
+                f"[智能去重] 删除重复待发回复 id={entry.id}, "
+                f"scheduled_at={entry.scheduled_at}, 保留 id={anchor.id}"
+            )
+            db.session.delete(entry)
+        db.session.commit()
+
+
 async def check_keywords(manager, account_id: int, client, event, msg, replied_msg,
                          *, is_reply_to_me=False, is_mentioned=False):
     """
@@ -316,5 +362,9 @@ async def check_keywords(manager, account_id: int, client, event, msg, replied_m
                     db.session.add(err_log)
 
             db.session.commit()
+            # 智能去重（仅对定时回复生效，立即回复无 PendingReply）
+            if keyword_rule.use_random_time or keyword_rule.has_time_requirement:
+                _smart_dedup(account_id, group_id,
+                             keyword_rule.reply_message, keyword_rule.topic_id)
             # 每条消息只匹配第一个关键词规则，避免重复触发
             break
