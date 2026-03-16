@@ -14,7 +14,8 @@ def index():
 @keywords_bp.route('/add', methods=['POST'])
 def add():
     account_id = request.form.get('account_id') or None
-    keyword_text = request.form.get('keyword', '').strip()
+    keyword_items = request.form.getlist('keywords[]')
+    keyword_text = '\n'.join(k.strip() for k in keyword_items if k.strip())
     has_time = request.form.get('has_time_requirement') == 'on'
     buffer_secs = request.form.get('time_buffer_seconds', '30').strip()
     buffer_type = request.form.get('buffer_type', 'fixed')
@@ -104,7 +105,8 @@ def edit(kw_id):
         kw.account_id = request.form.get('account_id') or None
         if kw.account_id:
             kw.account_id = int(kw.account_id)
-        kw.keyword = request.form.get('keyword', '').strip()
+        keyword_items = request.form.getlist('keywords[]')
+        kw.keyword = '\n'.join(k.strip() for k in keyword_items if k.strip())
         kw.has_time_requirement = request.form.get('has_time_requirement') == 'on'
         buf = request.form.get('time_buffer_seconds', '30').strip()
         kw.time_buffer_seconds = int(buf) if buf.isdigit() else 30

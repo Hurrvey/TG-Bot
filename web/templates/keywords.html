@@ -24,9 +24,21 @@
           </div>
           <div class="mb-3">
             <label class="form-label">关键词 <span class="text-danger">*</span></label>
-            <input type="text" name="keyword" class="form-control"
-                   placeholder="话题名称" required>
-            <div class="form-text">在消息中检测此关键词（按所选触发方式）</div>
+            <div id="kw-keywords-list">
+              <div class="input-group mb-1">
+                <input type="text" name="keywords[]" class="form-control"
+                       placeholder="输入关键词" required>
+                <button type="button" class="btn btn-outline-danger btn-sm"
+                        onclick="removeKeywordRow(this)" title="删除" style="display:none">
+                  <i class="bi bi-x-lg"></i>
+                </button>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm mt-1"
+                    onclick="addKeywordRow()">
+              <i class="bi bi-plus-circle me-1"></i>添加关键词
+            </button>
+            <div class="form-text">添加多个关键词时，消息必须同时包含所有关键词才会触发</div>
           </div>
           <div class="mb-3">
             <label class="form-label">触发方式</label>
@@ -184,7 +196,11 @@
             {% for kw in keywords %}
             <tr class="{{ '' if kw.is_active else 'text-muted' }}">
               <td>
-                <code class="bg-light px-2 py-1 rounded">{{ kw.keyword }}</code>
+                {% for k in kw.keyword.split('\n') %}
+                  {% if k.strip() %}
+                    <code class="bg-light px-2 py-1 rounded me-1">{{ k.strip() }}</code>
+                  {% endif %}
+                {% endfor %}
               </td>
               <td>
                 {% if kw.trigger_mode == 'mention_me' %}
@@ -284,6 +300,32 @@
 
 {% block scripts %}
 <script>
+// ── 动态关键词输入行 ──
+function addKeywordRow() {
+  const list = document.getElementById('kw-keywords-list');
+  const row = document.createElement('div');
+  row.className = 'input-group mb-1';
+  row.innerHTML = `
+    <input type="text" name="keywords[]" class="form-control" placeholder="输入关键词" required>
+    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeKeywordRow(this)" title="删除">
+      <i class="bi bi-x-lg"></i>
+    </button>`;
+  list.appendChild(row);
+  updateRemoveButtons(list);
+}
+function removeKeywordRow(btn) {
+  const list = btn.closest('#kw-keywords-list');
+  btn.closest('.input-group').remove();
+  updateRemoveButtons(list);
+}
+function updateRemoveButtons(list) {
+  const rows = list.querySelectorAll('.input-group');
+  rows.forEach(r => {
+    const btn = r.querySelector('.btn-outline-danger');
+    if (btn) btn.style.display = rows.length > 1 ? '' : 'none';
+  });
+}
+
 function toggleTimeFields() {
   const cb = document.getElementById('has_time');
   document.getElementById('time-fields').style.display = cb.checked ? 'block' : 'none';

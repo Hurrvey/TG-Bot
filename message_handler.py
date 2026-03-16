@@ -206,7 +206,12 @@ async def check_keywords(manager, account_id: int, client, event, msg, replied_m
                 continue
             # mode == 'all_messages' → 不跳过
 
-            if keyword_rule.keyword.lower() not in text.lower():
+            # 多关键词 AND 匹配：keyword 字段以 \n 分隔，所有关键词都必须出现
+            kw_list = [k.strip() for k in keyword_rule.keyword.split('\n') if k.strip()]
+            if not kw_list:
+                continue
+            text_lower = text.lower()
+            if not all(k.lower() in text_lower for k in kw_list):
                 continue
 
             # 确定实际发送目标：优先使用规则中指定的目标群组

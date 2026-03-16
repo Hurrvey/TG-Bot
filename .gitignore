@@ -43,3 +43,7 @@ desktop.ini
 dist/
 build/
 *.egg-info/
+
+# ── 其他临时文件 ──
+.claude/
+.claude

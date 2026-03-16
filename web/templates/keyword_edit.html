@@ -24,8 +24,25 @@
           </div>
           <div class="mb-3">
             <label class="form-label">关键词 <span class="text-danger">*</span></label>
-            <input type="text" name="keyword" class="form-control"
-                   value="{{ kw.keyword }}" required>
+            <div id="kw-keywords-list">
+              {% for k in kw.keyword.split('\n') %}
+                {% if k.strip() %}
+                <div class="input-group mb-1">
+                  <input type="text" name="keywords[]" class="form-control"
+                         value="{{ k.strip() }}" required>
+                  <button type="button" class="btn btn-outline-danger btn-sm"
+                          onclick="removeKeywordRow(this)" title="删除">
+                    <i class="bi bi-x-lg"></i>
+                  </button>
+                </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+            <button type="button" class="btn btn-outline-secondary btn-sm mt-1"
+                    onclick="addKeywordRow()">
+              <i class="bi bi-plus-circle me-1"></i>添加关键词
+            </button>
+            <div class="form-text">添加多个关键词时，消息必须同时包含所有关键词才会触发</div>
           </div>
           <div class="mb-3">
             <label class="form-label">触发方式</label>
@@ -160,6 +177,32 @@
 
 {% block scripts %}
 <script>
+// ── 动态关键词输入行 ──
+function addKeywordRow() {
+  const list = document.getElementById('kw-keywords-list');
+  const row = document.createElement('div');
+  row.className = 'input-group mb-1';
+  row.innerHTML = `
+    <input type="text" name="keywords[]" class="form-control" placeholder="输入关键词" required>
+    <button type="button" class="btn btn-outline-danger btn-sm" onclick="removeKeywordRow(this)" title="删除">
+      <i class="bi bi-x-lg"></i>
+    </button>`;
+  list.appendChild(row);
+  updateRemoveButtons();
+}
+function removeKeywordRow(btn) {
+  btn.closest('.input-group').remove();
+  updateRemoveButtons();
+}
+function updateRemoveButtons() {
+  const rows = document.querySelectorAll('#kw-keywords-list .input-group');
+  rows.forEach(r => {
+    const btn = r.querySelector('.btn-outline-danger');
+    if (btn) btn.style.display = rows.length > 1 ? '' : 'none';
+  });
+}
+document.addEventListener('DOMContentLoaded', updateRemoveButtons);
+
 function toggleTimeFields() {
   const cb = document.getElementById('has_time');
   document.getElementById('time-fields').style.display = cb.checked ? 'block' : 'none';
