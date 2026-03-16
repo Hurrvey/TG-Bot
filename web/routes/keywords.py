@@ -62,6 +62,10 @@ def add():
     topic_id_raw = request.form.get('topic_id', '').strip()
     topic_id = int(topic_id_raw) if topic_id_raw.lstrip('-').isdigit() else None
 
+    trigger_mode = request.form.get('trigger_mode', 'reply_to_me')
+    if trigger_mode not in ('reply_to_me', 'mention_me', 'all_messages'):
+        trigger_mode = 'reply_to_me'
+
     kw = Keyword(
         account_id=account_id,
         keyword=keyword_text,
@@ -70,6 +74,7 @@ def add():
         buffer_random_min=buf_rand_min,
         buffer_random_max=buf_rand_max,
         reply_message=reply_message,
+        trigger_mode=trigger_mode,
         target_group_id=target_group_id,
         target_group_name=target_group_name,
         topic_id=topic_id,
@@ -115,6 +120,8 @@ def edit(kw_id):
         if buffer_type != 'random':
             kw.buffer_random_min = kw.buffer_random_max = 0
         kw.reply_message = request.form.get('reply_message', '').strip()
+        trigger_mode = request.form.get('trigger_mode', 'reply_to_me')
+        kw.trigger_mode = trigger_mode if trigger_mode in ('reply_to_me', 'mention_me', 'all_messages') else 'reply_to_me'
         kw.target_group_id = request.form.get('target_group_id', '').strip() or None
         kw.target_group_name = request.form.get('target_group_name', '').strip()
         topic_id_raw = request.form.get('topic_id', '').strip()

@@ -58,6 +58,8 @@ class Keyword(db.Model):
     # 指定发送目标群组（可选）。填写后回复固定发到此群组，而非触发消息所在的聊天
     target_group_id = db.Column(db.String(100))
     target_group_name = db.Column(db.String(200), default='')
+    # 触发模式：reply_to_me=引用回复, mention_me=@提及, all_messages=所有消息
+    trigger_mode = db.Column(db.String(20), default='reply_to_me')
     # 指定发送到群组内的哪个话题（Forum Topic ID），None 表示不指定（发到默认/通用话题）
     topic_id = db.Column(db.Integer, nullable=True)
     # 随机等待时间：开启后忽略解析时间，在 [min, max] 秒内随机选一个等待时间
@@ -77,6 +79,7 @@ class Keyword(db.Model):
             'buffer_random_min': self.buffer_random_min,
             'buffer_random_max': self.buffer_random_max,
             'reply_message': self.reply_message,
+            'trigger_mode': self.trigger_mode or 'reply_to_me',
             'target_group_id': self.target_group_id,
             'target_group_name': self.target_group_name,
             'topic_id': self.topic_id,

@@ -26,7 +26,16 @@
             <label class="form-label">关键词 <span class="text-danger">*</span></label>
             <input type="text" name="keyword" class="form-control"
                    placeholder="话题名称" required>
-            <div class="form-text">在"别人引用我消息的回复"中检测此关键词</div>
+            <div class="form-text">在消息中检测此关键词（按所选触发方式）</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">触发方式</label>
+            <select name="trigger_mode" class="form-select">
+              <option value="reply_to_me" selected>引用我的消息时</option>
+              <option value="mention_me">@提及我时</option>
+              <option value="all_messages">所有消息（建议配合白名单）</option>
+            </select>
+            <div class="form-text">选择何时触发关键词检测</div>
           </div>
           <div class="mb-3">
             <div class="form-check form-switch">
@@ -161,6 +170,7 @@
           <thead class="table-light">
             <tr>
               <th>关键词</th>
+              <th>触发方式</th>
               <th>适用账号</th>
               <th>时间模式</th>
               <th>目标群组</th>
@@ -175,6 +185,15 @@
             <tr class="{{ '' if kw.is_active else 'text-muted' }}">
               <td>
                 <code class="bg-light px-2 py-1 rounded">{{ kw.keyword }}</code>
+              </td>
+              <td>
+                {% if kw.trigger_mode == 'mention_me' %}
+                  <span class="badge bg-warning text-dark">@提及</span>
+                {% elif kw.trigger_mode == 'all_messages' %}
+                  <span class="badge bg-danger">全部消息</span>
+                {% else %}
+                  <span class="badge bg-info text-dark">引用回复</span>
+                {% endif %}
               </td>
               <td class="small">
                 {% if kw.account %}

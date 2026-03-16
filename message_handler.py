@@ -66,13 +66,15 @@ def _is_in_schedule(start_str: str, end_str: str) -> bool:
         return cur >= s or cur <= e
 
 
-async def check_keywords(manager, account_id: int, client, event, msg, replied_msg):
+async def check_keywords(manager, account_id: int, client, event, msg, replied_msg,
+                         *, is_reply_to_me=False, is_mentioned=False):
     """
     检测消息中的关键词，根据规则自动回复。
 
-    仅处理"回复了我的消息"的消息：
-      - 若关键词无时间要求，立即回复
-      - 若关键词有时间要求，从消息中提取时间，加上缓冲秒数后定时回复
+    支持三种触发模式（per-rule）：
+      - reply_to_me: 有人引用我的消息时检测
+      - mention_me: 有人 @提及我时检测
+      - all_messages: 所有收到的消息均检测
     """
     text = msg.text or ''
     if not text:
@@ -90,10 +92,16 @@ async def check_keywords(manager, account_id: int, client, event, msg, replied_m
                 )
                 try:
                     sender_name = getattr(msg.sender, 'first_name', '') or str(msg.sender_id)
+                    if is_reply_to_me:
+                        trigger_desc = '有人引用了你的消息'
+                    elif is_mentioned:
+                        trigger_desc = '有人@提及了你'
+                    else:
+                        trigger_desc = '检测到消息'
                     await client.send_message(
                         'me',
                         f"\u23f0 非托管时段 ({_account.schedule_start} \u2013 {_account.schedule_end})\n\n"
-                        f"有人引用了你的消息，关键词规则\u672a\u89e6\u53d1\u3002\n\n"
+                        f"{trigger_desc}，关键词规则\u672a\u89e6\u53d1\u3002\n\n"
                         f"\U0001f464 发送者: {sender_name} ({msg.sender_id})\n"
                         f"\U0001f4ac 消息内容:\n{text[:400]}"
                     )
@@ -144,6 +152,14 @@ async def check_keywords(manager, account_id: int, client, event, msg, replied_m
         ).all()
 
         for keyword_rule in keywords:
+            # 检查触发模式是否匹配当前消息类型
+            mode = keyword_rule.trigger_mode or 'reply_to_me'
+            if mode == 'reply_to_me' and not is_reply_to_me:
+                continue
+            if mode == 'mention_me' and not is_mentioned:
+                continue
+            # mode == 'all_messages' → 不跳过
+
             if keyword_rule.keyword.lower() not in text.lower():
                 continue
 

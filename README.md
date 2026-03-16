@@ -13,7 +13,10 @@
 - **托管时间段**：可为每个账号设置仅在指定时间段内（如 18:00～次日 08:00）执行自动回复，支持跨午夜区间；非托管时段触发时向「已保存的消息」发送通知
 
 ### 关键词自动回复
-- 监听"别人引用了我的消息"的回复，检测消息正文中的关键词
+- **三种触发方式**（每条规则独立选择）：
+  - **引用回复**（默认）：监听"别人引用了我的消息"的回复
+  - **@提及**：有人在消息中 @我 时触发（不含引用回复）
+  - **所有消息**：检测收到的所有消息（建议配合白名单使用）
 - 触发后自动发送预设回复内容
 - 可指定适用账号（或对全部账号生效）
 - **三种等待模式**：
@@ -53,6 +56,7 @@
 ### 操作日志
 - 记录关键词匹配、自动回复、定时发送、错误等全部事件
 - 可在 Web 界面中实时查看
+- 支持按类型/关键词筛选、勾选批量删除、一键清空
 
 ---
 
@@ -141,7 +145,8 @@ python main.py
 1. 进入**关键词回复**页面，点击「添加规则」
 2. 填写：
    - **适用账号**：留空则全部账号生效
-   - **关键词**：在"别人引用我消息的回复"中检测此文本
+   - **关键词**：在消息中检测此文本
+   - **触发方式**：「引用我的消息时」/「@提及我时」/「所有消息」
    - **等待模式**：选择立即回复、解析时间（含缓冲）、或随机等待
    - **回复内容**：触发后发送的消息
    - **发送目标 ID**（可选）：填入数字 ID 后自动识别类型；Forum 频道自动弹出话题下拉菜单
@@ -194,9 +199,10 @@ tgbot/
     │   ├── accounts.py     # 账号管理、授权、群组/话题发现 API
     │   ├── keywords.py     # 关键词规则 CRUD
     │   ├── tasks.py        # 定时任务 CRUD
+    │   ├── targets.py      # 目标实体列表管理
     │   ├── queue.py        # 发送队列页面 & JSON API
     │   ├── whitelist.py    # 白名单管理
-    │   └── logs.py         # 日志查看
+    │   └── logs.py         # 日志查看、删除
     └── templates/
         ├── base.html
         ├── accounts.html
@@ -204,6 +210,8 @@ tgbot/
         ├── keywords.html
         ├── keyword_edit.html
         ├── tasks.html
+        ├── task_edit.html
+        ├── targets.html
         ├── queue.html       # 发送队列实时倒计时页面
         ├── whitelist.html
         ├── logs.html
@@ -221,6 +229,10 @@ tgbot/
 | GET | `/accounts/<id>/resolve/<target_id>` | 解析任意目标 ID，返回实体类型、名称、是否 Forum |
 | GET | `/queue/` | 发送队列页面 |
 | GET | `/queue/api` | 发送队列 JSON 数据（按剩余时间升序） |
+| GET | `/whitelist/api` | 活跃白名单条目 JSON |
+| GET | `/targets/api` | 已保存目标实体 JSON |
+| POST | `/logs/api/delete` | 批量删除指定日志（body: `{ids: [...]}`) |
+| POST | `/logs/api/clear` | 清空所有日志 |
 
 ---
 
@@ -267,37 +279,3 @@ python migrate.py
 
 群组 ID 获取方法：将账号拉入群组后，在群组头像上右键 → 复制链接，
 从链接末尾获取数字部分；超级群组需在前面加 `-100`。
-
----
-
-## 项目结构
-
-```
-tgbot/
-├── main.py                # 启动入口
-├── config.py              # 配置读取
-├── models.py              # 数据库模型
-├── time_parser.py         # 中文时间解析
-├── message_handler.py     # 消息关键词处理
-├── telegram_manager.py    # Telethon 客户端管理
-├── requirements.txt
-├── .env.example
-└── web/
-    ├── app.py             # Flask 应用工厂
-    ├── routes/
-    │   ├── main.py        # 控制台
-    │   ├── accounts.py    # 账号管理
-    │   ├── keywords.py    # 关键词规则
-    │   ├── tasks.py       # 定时任务
-    │   └── logs.py        # 日志查看
-    └── templates/         # HTML 模板（Bootstrap 5）
-```
-
----
-
-## 注意事项
-
-- Web 界面默认仅监听 `127.0.0.1`，**不要暴露到公网**
-- Session 字符串以明文存储在 SQLite 数据库中，请妥善保管 `tgbot.db`
-- Telegram 对自动化操作有频率限制，避免在极短时间内大量发送消息
-- 本工具操控的是**用户账号**（非 Bot），请遵守 Telegram 服务条款

@@ -17,6 +17,7 @@ class TelegramManager:
         self.clients: Dict[int, TelegramClient] = {}   # account_id -> client
         self.loop: Optional[asyncio.AbstractEventLoop] = None
         self._pending_auth: Dict[str, dict] = {}        # phone -> {client, phone_code_hash}
+        self._trigger_modes: Dict = {}   # account_id|'__global__' -> set of trigger_mode strings
         self.scheduler = None
         self.app = None   # Flask app，由外部注入
 
@@ -57,6 +58,7 @@ class TelegramManager:
 
         await self._load_accounts()
         await self._reload_scheduled_tasks()
+        self._refresh_trigger_modes()
 
         # 每分钟重新加载定时任务（捕获 Web 端新增的任务）
         self.scheduler.add_job(
@@ -137,19 +139,40 @@ class TelegramManager:
     ):
         """
         处理收到的消息：
-        仅当消息是对"我的消息"的回复时，才进行关键词检测
+        根据关键词规则的 trigger_mode 判断是否进行关键词检测：
+        - reply_to_me: 有人引用我的消息时
+        - mention_me: 有人 @提及我时（不含引用回复）
+        - all_messages: 所有收到的消息
         """
         try:
             msg = event.message
-            if not msg.reply_to_msg_id:
-                return
+            is_reply_to_me = False
+            is_mentioned = False
+            replied_msg = None
 
-            replied_msg = await event.get_reply_message()
-            if replied_msg is None or not replied_msg.out:
-                return  # 不是对我发出消息的回复
+            if msg.reply_to_msg_id:
+                replied_msg = await event.get_reply_message()
+                if replied_msg and replied_msg.out:
+                    is_reply_to_me = True
+
+            # 纯 @提及（不含引用回复，因为 mentioned 在 reply 时也为 True）
+            if msg.mentioned and not is_reply_to_me:
+                is_mentioned = True
+
+            # 性能优化：快速检查当前消息类型是否匹配任何活跃规则的 trigger_mode
+            modes = self._trigger_modes.get(account_id, set()) | self._trigger_modes.get('__global__', set())
+            if 'all_messages' in modes:
+                pass  # all_messages 模式匹配所有消息
+            elif is_reply_to_me and 'reply_to_me' in modes:
+                pass
+            elif is_mentioned and 'mention_me' in modes:
+                pass
+            else:
+                return  # 没有任何匹配的触发模式
 
             from message_handler import check_keywords
-            await check_keywords(self, account_id, client, event, msg, replied_msg)
+            await check_keywords(self, account_id, client, event, msg, replied_msg,
+                                 is_reply_to_me=is_reply_to_me, is_mentioned=is_mentioned)
 
         except Exception as e:
             logger.error(f'处理消息时出错: {e}')
@@ -307,6 +330,8 @@ class TelegramManager:
         except Exception as e:
             logger.error(f'重新加载定时任务失败: {e}')
 
+        self._refresh_trigger_modes()
+
     async def remove_task_job(self, task_id: int):
         """移除指定定时任务的调度（供 Web 端调用）"""
         job_id = f'task_{task_id}'
@@ -413,6 +438,27 @@ class TelegramManager:
                         db.session.commit()
         except Exception as e:
             logger.error(f'检查待发回复时出错: {e}')
+
+    # ------------------------------------------------------------------
+    # 触发模式缓存
+    # ------------------------------------------------------------------
+
+    def _refresh_trigger_modes(self):
+        """刷新每个账号的活跃关键词触发模式缓存"""
+        try:
+            with self.app.app_context():
+                from models import Keyword
+                result = {}
+                rows = Keyword.query.filter_by(is_active=True).all()
+                for kw in rows:
+                    mode = kw.trigger_mode or 'reply_to_me'
+                    if kw.account_id is None:
+                        result.setdefault('__global__', set()).add(mode)
+                    else:
+                        result.setdefault(kw.account_id, set()).add(mode)
+                self._trigger_modes = result
+        except Exception as e:
+            logger.error(f'刷新触发模式缓存失败: {e}')
 
     # ------------------------------------------------------------------
     # 工具方法

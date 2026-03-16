@@ -36,6 +36,8 @@ with app.app_context():
         # scheduled_tasks 表 — 断点续时
         ('ALTER TABLE scheduled_tasks ADD COLUMN next_run_at DATETIME', 'scheduled_tasks.next_run_at'),
         ('ALTER TABLE scheduled_tasks ADD COLUMN last_run_at DATETIME', 'scheduled_tasks.last_run_at'),
+        # keywords 表 — 触发模式
+        ('ALTER TABLE keywords ADD COLUMN trigger_mode VARCHAR(20) DEFAULT "reply_to_me"', 'keywords.trigger_mode'),
     ]
 
     for sql, label in migrations:

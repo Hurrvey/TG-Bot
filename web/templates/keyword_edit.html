@@ -28,6 +28,15 @@
                    value="{{ kw.keyword }}" required>
           </div>
           <div class="mb-3">
+            <label class="form-label">触发方式</label>
+            <select name="trigger_mode" class="form-select">
+              <option value="reply_to_me" {{ 'selected' if (kw.trigger_mode or 'reply_to_me') == 'reply_to_me' }}>引用我的消息时</option>
+              <option value="mention_me" {{ 'selected' if kw.trigger_mode == 'mention_me' }}>@提及我时</option>
+              <option value="all_messages" {{ 'selected' if kw.trigger_mode == 'all_messages' }}>所有消息（建议配合白名单）</option>
+            </select>
+            <div class="form-text">选择何时触发关键词检测</div>
+          </div>
+          <div class="mb-3">
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" id="has_time"
                      name="has_time_requirement"
