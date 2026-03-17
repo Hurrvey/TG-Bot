@@ -113,10 +113,7 @@ function buildRow(item) {
   const sec = item.remaining_seconds;
   const maxSec = maxSeconds[key] || sec || 1;
 
-  const canDelete = item.type === 'pending_reply';
-  const checkbox = canDelete
-    ? `<input type="checkbox" class="row-check" data-type="${item.type}" data-id="${item.id}" onchange="updateSelectionUI()">`
-    : '';
+  const checkbox = `<input type="checkbox" class="row-check" data-type="${item.type}" data-id="${item.id}" onchange="updateSelectionUI()">`;
 
   const typeBadge = item.type === 'pending_reply'
     ? '<span class="badge type-badge-pending">关键词回复</span>'
@@ -237,12 +234,25 @@ function updateSelectionUI() {
 async function deleteSelected() {
   const checked = document.querySelectorAll('.row-check:checked');
   if (checked.length === 0) return;
-  if (!confirm(`确定要删除选中的 ${checked.length} 条待发送任务吗？`)) return;
 
   const items = [];
+  let pendingCount = 0;
+  let taskCount = 0;
   checked.forEach(cb => {
     items.push({ type: cb.dataset.type, id: parseInt(cb.dataset.id) });
+    if (cb.dataset.type === 'pending_reply') pendingCount++;
+    else if (cb.dataset.type === 'scheduled_task') taskCount++;
   });
+
+  let msg = `确定要操作选中的 ${checked.length} 条任务吗？`;
+  if (pendingCount > 0 && taskCount > 0) {
+    msg = `确定要操作选中的 ${checked.length} 条任务吗？\n· ${pendingCount} 条关键词回复将被永久删除\n· ${taskCount} 条定时任务将跳过本次发送（下次照常执行）`;
+  } else if (taskCount > 0) {
+    msg = `确定要跳过选中的 ${taskCount} 条定时任务的本次发送吗？\n（下次将照常执行）`;
+  } else {
+    msg = `确定要删除选中的 ${pendingCount} 条待发送任务吗？`;
+  }
+  if (!confirm(msg)) return;
 
   try {
     const res = await fetch('/queue/api/delete', {

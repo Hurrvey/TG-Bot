@@ -127,6 +127,12 @@ python main.py
 
 服务启动后访问 `http://127.0.0.1:5000`。
 
+### docker启动（可选）
+
+```bash
+docker compose up -d
+```
+
 ---
 
 ## 使用流程

@@ -1,0 +1,15 @@
+services:
+  tgbot:
+    build: .
+    container_name: tgbot
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./data:/app/instance
+    environment:
+      - SECRET_KEY=change-me-to-a-random-string
+      - DATABASE_URL=sqlite:///tgbot.db
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=5000
+      - DEBUG=False

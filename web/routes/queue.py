@@ -110,6 +110,15 @@ def delete_items():
             if row:
                 db.session.delete(row)
                 deleted += 1
+        elif item_type == 'scheduled_task':
+            manager = current_app.telegram_manager
+            if manager and manager.scheduler:
+                job_id = f'task_{item_id}'
+                job = manager.scheduler.get_job(job_id)
+                if job:
+                    # 用相同的 trigger 重新调度 → 跳过当前执行，直接算下一次
+                    manager.scheduler.reschedule_job(job_id, trigger=job.trigger)
+                    deleted += 1
 
     db.session.commit()
     return jsonify({'deleted': deleted})
